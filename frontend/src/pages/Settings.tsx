@@ -1,0 +1,437 @@
+import { useState, useEffect } from 'react';
+import type { Identity } from '../lib/types';
+import {
+  getCompanion, updateCompanion,
+  getSettings, updateSettings,
+  getIdentity, addIdentity, deleteIdentity,
+  uploadFile,
+} from '../lib/api';
+import WallpaperPicker from '../components/WallpaperPicker';
+
+interface SettingsProps {
+  onImport?: () => void;
+}
+
+export default function Settings({ onImport }: SettingsProps) {
+  // Companion
+  const [compName, setCompName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [compSaving, setCompSaving] = useState(false);
+  const [compMsg, setCompMsg] = useState('');
+
+  // API Key — one field, auto-detect provider
+  const [apiKey, setApiKey] = useState('');
+  const [apiSaving, setApiSaving] = useState(false);
+  const [apiMsg, setApiMsg] = useState('');
+
+  // Chat
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem('haven-font-size');
+    return saved ? parseInt(saved, 10) : 15;
+  });
+  const [wallpaper, setWallpaper] = useState(() => localStorage.getItem('haven-wallpaper') || '');
+  const [showWallpaper, setShowWallpaper] = useState(false);
+
+  // Identity
+  const [identities, setIdentities] = useState<Identity[]>([]);
+  const [newContent, setNewContent] = useState('');
+  const [newType, setNewType] = useState('personality');
+  const [idLoading, setIdLoading] = useState(false);
+
+  useEffect(() => {
+    getCompanion().then((c) => {
+      setCompName(c.name);
+      setAvatarUrl(c.avatar_url || '');
+    }).catch(() => {});
+
+    getSettings().then((s) => {
+      // Show whichever key is set
+      setApiKey(s.openrouter_key || s.ollama_key || s.ollama_url || '');
+    }).catch(() => {});
+
+    loadIdentities();
+  }, []);
+
+  const loadIdentities = () => {
+    setIdLoading(true);
+    getIdentity().then(setIdentities).catch(() => {}).finally(() => setIdLoading(false));
+  };
+
+  const saveCompanion = async () => {
+    setCompSaving(true);
+    setCompMsg('');
+    try {
+      await updateCompanion({ name: compName, avatar_url: avatarUrl || null });
+      setCompMsg('Saved');
+      setTimeout(() => setCompMsg(''), 2000);
+    } catch { setCompMsg('Error'); }
+    setCompSaving(false);
+  };
+
+  const saveApi = async () => {
+    setApiSaving(true);
+    setApiMsg('');
+    try {
+      // Auto-detect provider from key format
+      const settings: Record<string, string> = {
+        openrouter_key: '', ollama_key: '', ollama_url: '',
+        provider: '', custom_base_url: '', custom_key: '',
+      };
+      const key = apiKey.trim();
+      if (key.startsWith('http')) {
+        settings.ollama_url = key;
+        settings.provider = 'ollama';
+      } else if (key.startsWith('sk-or-')) {
+        settings.openrouter_key = key;
+        settings.provider = 'openrouter';
+      } else if (key.startsWith('gsk_')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.groq.com/openai/v1';
+        settings.provider = 'groq';
+      } else if (key.startsWith('sk-ant-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.anthropic.com/v1';
+        settings.provider = 'anthropic';
+      } else if (key.startsWith('sk-') || key.startsWith('sk-proj-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.openai.com/v1';
+        settings.provider = 'openai';
+      } else if (key.startsWith('xai-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.x.ai/v1';
+        settings.provider = 'xai';
+      } else if (key.length > 20 && /^[a-f0-9]+\./.test(key)) {
+        settings.ollama_key = key;
+        settings.provider = 'ollama';
+      } else if (key) {
+        // Default: treat as OpenAI-compatible key via OpenRouter
+        settings.openrouter_key = key;
+        settings.provider = 'openrouter';
+      }
+      await updateSettings(settings);
+      setApiMsg('Saved');
+      setTimeout(() => setApiMsg(''), 2000);
+    } catch { setApiMsg('Error'); }
+    setApiSaving(false);
+  };
+
+  const handleAddIdentity = async () => {
+    if (!newContent.trim()) return;
+    await addIdentity({ content: newContent.trim(), identity_type: newType, priority: 0 });
+    setNewContent('');
+    loadIdentities();
+  };
+
+  const handleDeleteIdentity = async (id: number) => {
+    await deleteIdentity(id);
+    loadIdentities();
+  };
+
+  const handleFontChange = (val: number) => {
+    setFontSize(val);
+    localStorage.setItem('haven-font-size', String(val));
+  };
+
+  const handleWallpaperChange = (val: string) => {
+    setWallpaper(val);
+    localStorage.setItem('haven-wallpaper', val);
+  };
+
+  const sectionStyle: React.CSSProperties = {
+    background: 'var(--haven-surface)',
+    border: '1px solid var(--haven-border)',
+    borderRadius: '12px',
+    padding: '20px',
+    marginBottom: '16px',
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: '12px', color: 'var(--haven-text-secondary)', marginBottom: '6px', display: 'block',
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 12px', borderRadius: '8px',
+    background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
+    color: 'var(--haven-text)', fontSize: '14px', outline: 'none',
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: '8px 20px', borderRadius: '8px', border: 'none',
+    background: 'var(--haven-accent)', color: 'white', fontSize: '13px',
+    fontWeight: 600, cursor: 'pointer',
+  };
+
+  const typeLabels: Record<string, string> = {
+    backstory: 'Identity',
+    dynamic: 'Traits',
+    anchor: 'Core Rule',
+    voice: 'Voice',
+    trait: 'Trait',
+    boundary: 'Boundary',
+    value: 'Value',
+  };
+
+  const typeBadge = (type: string) => (
+    <span style={{
+      fontSize: '10px', fontWeight: 600, textTransform: 'uppercase',
+      background: 'var(--haven-card)', color: 'var(--haven-accent)',
+      borderRadius: '4px', padding: '2px 6px', marginLeft: '6px',
+      border: '1px solid var(--haven-border)',
+    }}>{typeLabels[type] || type}</span>
+  );
+
+  return (
+    <div className="hide-scrollbar" style={{
+      height: '100%', overflowY: 'auto', padding: '20px',
+      maxWidth: '600px', margin: '0 auto',
+    }}>
+      {/* Back link */}
+      <div style={{ marginBottom: '20px' }}>
+        <a href="/" style={{ color: 'var(--haven-text-muted)', textDecoration: 'none', fontSize: '13px' }}>
+          ← Back to chat
+        </a>
+      </div>
+
+      <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--haven-text)', marginBottom: '20px' }}>Settings</h1>
+
+      {/* Companion */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Companion</h3>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Name</label>
+          <input type="text" value={compName} onChange={(e) => setCompName(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Avatar</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {avatarUrl && (
+              <img src={avatarUrl} alt="avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--haven-border)' }} />
+            )}
+            <label style={{
+              flex: 1, padding: '10px', borderRadius: '8px', textAlign: 'center',
+              background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
+              color: 'var(--haven-text-secondary)', fontSize: '13px', cursor: 'pointer',
+            }}>
+              Upload Image
+              <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  const result = await uploadFile(file);
+                  const apiUrl = import.meta.env.VITE_API_URL || '';
+                  setAvatarUrl(`${apiUrl}${result.url}`);
+                } catch {}
+              }} />
+            </label>
+          </div>
+          <input type="text" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="...or paste a URL" style={{ ...inputStyle, marginTop: '8px', fontSize: '12px' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={saveCompanion} disabled={compSaving} style={btnStyle}>
+            {compSaving ? 'Saving...' : 'Save'}
+          </button>
+          {compMsg && <span style={{ fontSize: '12px', color: compMsg === 'Saved' ? '#4ade80' : '#f87171' }}>{compMsg}</span>}
+        </div>
+      </div>
+
+      {/* API Key */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Connect</h3>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>API Key</label>
+          <input
+            type={apiKey.startsWith('http') ? 'text' : 'password'}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Paste your API key or local URL"
+            style={{ ...inputStyle, fontFamily: 'monospace' }}
+          />
+          <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', margin: '4px 0 0', lineHeight: '1.4' }}>
+            {(() => {
+              const k = apiKey.trim();
+              if (k.startsWith('sk-or-')) return 'OpenRouter detected';
+              if (k.startsWith('http')) return 'Local Ollama URL detected';
+              if (k.startsWith('gsk_')) return 'Groq detected';
+              if (k.startsWith('sk-ant-')) return 'Anthropic detected';
+              if (k.startsWith('sk-')) return 'OpenAI detected';
+              if (k.startsWith('xai-')) return 'xAI / Grok detected';
+              if (k.length > 20 && /^[a-f0-9]+\./.test(k)) return 'Ollama Cloud detected';
+              if (k) return 'Will route through OpenRouter';
+              return 'Supports: OpenRouter, Ollama, OpenAI, Anthropic, Groq, xAI, or any local URL';
+            })()}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={saveApi} disabled={apiSaving} style={btnStyle}>
+            {apiSaving ? 'Saving...' : 'Save'}
+          </button>
+          {apiMsg && <span style={{ fontSize: '12px', color: apiMsg === 'Saved' ? '#4ade80' : '#f87171' }}>{apiMsg}</span>}
+        </div>
+      </div>
+
+      {/* Chat */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Chat</h3>
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Font Size: {fontSize}px</label>
+          <input
+            type="range" min="12" max="24" value={fontSize}
+            onChange={(e) => handleFontChange(parseInt(e.target.value, 10))}
+            style={{ width: '100%', accentColor: 'var(--haven-accent)' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--haven-text-muted)' }}>
+            <span>12px</span><span>24px</span>
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Wallpaper</label>
+          <button
+            onClick={() => setShowWallpaper(true)}
+            style={{
+              padding: '8px 16px', borderRadius: '8px',
+              border: '1px solid var(--haven-border)', background: 'var(--haven-card)',
+              color: 'var(--haven-text-secondary)', fontSize: '13px', cursor: 'pointer',
+            }}
+          >
+            {wallpaper ? 'Change Wallpaper' : 'Choose Wallpaper'}
+          </button>
+        </div>
+      </div>
+
+      {/* Identity */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Identity</h3>
+        {idLoading ? (
+          <p style={{ color: 'var(--haven-text-muted)', fontSize: '13px' }}>Loading...</p>
+        ) : (
+          <>
+            {identities.map((id) => (
+              <div key={id.id} style={{
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                padding: '10px', background: 'var(--haven-card)', borderRadius: '8px',
+                marginBottom: '8px', border: '1px solid var(--haven-border)',
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    {typeBadge(id.identity_type)}
+                    {id.pinned && <span style={{ fontSize: '10px', marginLeft: '4px' }}>📌</span>}
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--haven-text)', lineHeight: '1.4', margin: 0 }}>{id.content}</p>
+                </div>
+                <button
+                  onClick={() => handleDeleteIdentity(id.id)}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--haven-text-muted)',
+                    cursor: 'pointer', fontSize: '16px', padding: '2px', flexShrink: 0,
+                  }}
+                >x</button>
+              </div>
+            ))}
+
+            {/* Add new */}
+            <div style={{ marginTop: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <select
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value)}
+                  style={{
+                    padding: '8px', borderRadius: '8px',
+                    background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
+                    color: 'var(--haven-text)', fontSize: '12px', outline: 'none',
+                  }}
+                >
+                  <option value="backstory">Identity / Personality</option>
+                  <option value="dynamic">Traits</option>
+                  <option value="anchor">Core Rule</option>
+                  <option value="voice">Voice / Speech Pattern</option>
+                  <option value="trait">Trait</option>
+                  <option value="boundary">Boundary</option>
+                  <option value="value">Value</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  placeholder="Add identity fragment..."
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddIdentity(); }}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button onClick={handleAddIdentity} style={btnStyle}>Add</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Import */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>Import Conversations</h3>
+        <p style={{ fontSize: '12px', color: 'var(--haven-text-muted)', marginBottom: '12px' }}>
+          Bring conversations from ChatGPT, Claude, SillyTavern, or another Haven instance.
+        </p>
+        <button
+          onClick={onImport}
+          style={{
+            width: '100%', padding: '10px', borderRadius: '8px',
+            border: '1px solid var(--haven-border)', background: 'var(--haven-card)',
+            color: 'var(--haven-text)', fontSize: '13px', cursor: 'pointer',
+          }}
+        >
+          Import from JSON
+        </button>
+      </div>
+
+      {/* Data & Export */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Data & Export</h3>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          <a
+            href={`${import.meta.env.VITE_API_URL || ''}/api/export/all`}
+            download
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px', textAlign: 'center',
+              background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
+              color: 'var(--haven-text-secondary)', fontSize: '13px', textDecoration: 'none',
+            }}
+          >
+            Export Everything
+          </a>
+          <button
+            onClick={() => { localStorage.clear(); window.location.reload(); }}
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px',
+              border: '1px solid #7f1d1d', background: 'transparent',
+              color: '#f87171', fontSize: '13px', cursor: 'pointer',
+            }}
+          >
+            Clear Cache
+          </button>
+        </div>
+        <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', margin: 0 }}>
+          Export downloads all threads, messages, memories, identity, and people as JSON.
+        </p>
+      </div>
+
+      {/* App Info */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>About</h3>
+        <p style={{ fontSize: '13px', color: 'var(--haven-text-secondary)', margin: '0 0 4px' }}>Haven v1.0.0</p>
+        <p style={{ fontSize: '12px', color: 'var(--haven-text-muted)', margin: 0 }}>Haven — self-hosted companion chat</p>
+      </div>
+
+      {/* Bottom spacing */}
+      <div style={{ height: '40px' }} />
+
+      {/* Wallpaper picker */}
+      {showWallpaper && (
+        <WallpaperPicker
+          current={wallpaper}
+          onSelect={handleWallpaperChange}
+          onClose={() => setShowWallpaper(false)}
+        />
+      )}
+    </div>
+  );
+}
