@@ -22,7 +22,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     if (k.startsWith('gsk_')) return { provider: 'groq', label: 'Groq' };
     if (k.startsWith('xai-')) return { provider: 'xai', label: 'xAI' };
     if (k.startsWith('AIza')) return { provider: 'google', label: 'Google AI' };
-    if (k.length > 20 && /^[a-f0-9]+$/.test(k)) return { provider: 'ollama', label: 'Ollama Cloud' };
+    if (/^[a-f0-9]+\.[a-zA-Z0-9_-]+$/.test(k)) return { provider: 'ollama', label: 'Ollama Cloud' };
     return { provider: 'openrouter', label: 'Unknown — defaulting to OpenRouter' };
   };
 
@@ -60,7 +60,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         settings.custom_key = key;
         settings.custom_base_url = 'https://api.x.ai/v1';
         settings.provider = 'xai';
-      } else if (key.length > 20 && /^[a-f0-9]+$/.test(key)) {
+      } else if (/^[a-f0-9]+\.[a-zA-Z0-9_-]+$/.test(key)) {
         settings.ollama_key = key;
         settings.ollama_url = 'https://api.ollama.com';
         settings.provider = 'ollama';
