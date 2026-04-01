@@ -45,6 +45,7 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 <p align="center">
   <video src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/tour.mp4" width="300" controls></video>
 </p>
+<p align="center"><em>Quick tour of Haven's setup flow. (The URL shown in the video is a test instance that no longer exists.)</em></p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="200" />
