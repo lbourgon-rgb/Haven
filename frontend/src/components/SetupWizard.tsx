@@ -9,26 +9,64 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [ollamaKey, setOllamaKey] = useState('');
-  const [ollamaUrl] = useState('https://api.ollama.com');
   const [description, setDescription] = useState('');
   const [appearance, setAppearance] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const detectProvider = (key: string): { provider: string; label: string } => {
+    const k = key.trim();
+    if (k.startsWith('sk-or-')) return { provider: 'openrouter', label: 'OpenRouter' };
+    if (k.startsWith('sk-ant-')) return { provider: 'anthropic', label: 'Anthropic' };
+    if (k.startsWith('sk-proj-') || k.startsWith('sk-')) return { provider: 'openai', label: 'OpenAI' };
+    if (k.startsWith('gsk_')) return { provider: 'groq', label: 'Groq' };
+    if (k.startsWith('xai-')) return { provider: 'xai', label: 'xAI' };
+    if (k.startsWith('AIza')) return { provider: 'google', label: 'Google AI' };
+    if (k.length > 20 && /^[a-zA-Z0-9_-]+$/.test(k)) return { provider: 'ollama', label: 'Ollama' };
+    return { provider: 'openrouter', label: 'Unknown — defaulting to OpenRouter' };
+  };
+
+  const detected = apiKey.trim() ? detectProvider(apiKey) : null;
+
   const handleFinish = async () => {
     if (!name.trim()) { setError('Please enter a name'); return; }
-    if (!apiKey.trim() && !ollamaKey.trim()) { setError('Please enter at least one API key'); setStep(2); return; }
+    if (!apiKey.trim()) { setError('Please enter an API key'); setStep(2); return; }
 
     setSaving(true);
     setError('');
     try {
       await updateCompanion({ name: name.trim() });
-      const settings: Record<string, string> = {};
-      if (apiKey.trim()) settings.openrouter_key = apiKey.trim();
-      if (ollamaKey.trim()) {
-        settings.ollama_key = ollamaKey.trim();
-        settings.ollama_url = ollamaUrl.trim() || 'https://api.ollama.com';
+      const settings: Record<string, string> = {
+        openrouter_key: '', ollama_key: '', ollama_url: '',
+        provider: '', custom_base_url: '', custom_key: '',
+      };
+      const key = apiKey.trim();
+      if (key.startsWith('sk-or-')) {
+        settings.openrouter_key = key;
+        settings.provider = 'openrouter';
+      } else if (key.startsWith('gsk_')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.groq.com/openai/v1';
+        settings.provider = 'groq';
+      } else if (key.startsWith('sk-ant-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.anthropic.com/v1';
+        settings.provider = 'anthropic';
+      } else if (key.startsWith('sk-') || key.startsWith('sk-proj-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.openai.com/v1';
+        settings.provider = 'openai';
+      } else if (key.startsWith('xai-')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api.x.ai/v1';
+        settings.provider = 'xai';
+      } else if (key.length > 20 && /^[a-f0-9]+\./.test(key)) {
+        settings.ollama_key = key;
+        settings.ollama_url = 'https://api.ollama.com';
+        settings.provider = 'ollama';
+      } else if (key) {
+        settings.openrouter_key = key;
+        settings.provider = 'openrouter';
       }
       await updateSettings(settings);
       if (description.trim()) {
@@ -118,41 +156,19 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         {step === 2 && (
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px', textAlign: 'center' }}>
-              Connect to a model provider
+              Paste your API key
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              Add at least one. You can add more later in Settings.
+              We'll auto-detect the provider. Supports OpenRouter, Ollama, OpenAI, Anthropic, Groq, xAI, and Google AI.
             </p>
 
-            {/* OpenRouter */}
-            <label style={{ fontSize: '12px', color: 'var(--haven-text-secondary)', marginBottom: '6px', display: 'block' }}>
-              OpenRouter API Key{' '}
-              <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>(get one free)</a>
-            </label>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-or-..."
+              placeholder="Paste any API key..."
               autoFocus
-              style={{
-                width: '100%', padding: '12px 16px', borderRadius: '10px',
-                background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
-                color: 'var(--haven-text)', fontSize: '14px', outline: 'none',
-                fontFamily: 'monospace', marginBottom: '16px',
-              }}
-            />
-
-            {/* Ollama */}
-            <label style={{ fontSize: '12px', color: 'var(--haven-text-secondary)', marginBottom: '6px', display: 'block' }}>
-              Ollama Cloud API Key{' '}
-              <a href="https://ollama.com/account/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>(get one here)</a>
-            </label>
-            <input
-              type="password"
-              value={ollamaKey}
-              onChange={(e) => setOllamaKey(e.target.value)}
-              placeholder="Ollama API key..."
+              onKeyDown={(e) => { if (e.key === 'Enter' && apiKey.trim()) setStep(3); }}
               style={{
                 width: '100%', padding: '12px 16px', borderRadius: '10px',
                 background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
@@ -160,6 +176,23 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 fontFamily: 'monospace',
               }}
             />
+
+            {detected && (
+              <p style={{ fontSize: '12px', color: 'var(--haven-accent)', marginTop: '8px', textAlign: 'center' }}>
+                Detected: {detected.label}
+              </p>
+            )}
+
+            <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', marginTop: '12px', textAlign: 'center' }}>
+              <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>OpenRouter</a>
+              {' · '}
+              <a href="https://ollama.com/account/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>Ollama</a>
+              {' · '}
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>OpenAI</a>
+              {' · '}
+              <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>Groq</a>
+            </p>
+
             <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
               <button
                 onClick={() => setStep(1)}
@@ -170,8 +203,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 }}
               >Back</button>
               <button
-                onClick={() => { if (apiKey.trim() || ollamaKey.trim()) setStep(3); }}
-                disabled={!apiKey.trim() && !ollamaKey.trim()}
+                onClick={() => { if (apiKey.trim()) setStep(3); }}
+                disabled={!apiKey.trim()}
                 style={{
                   flex: 2, padding: '12px', borderRadius: '10px', border: 'none',
                   background: apiKey.trim() ? 'var(--haven-accent)' : 'var(--haven-border)',
