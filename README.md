@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/banner.jpg" alt="Haven" width="100%" />
+</p>
+
 <h1 align="center">Haven</h1>
 
 <p align="center">
