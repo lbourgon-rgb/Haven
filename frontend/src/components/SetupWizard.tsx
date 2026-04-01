@@ -10,7 +10,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [ollamaKey, setOllamaKey] = useState('');
-  const [ollamaUrl, setOllamaUrl] = useState('https://api.ollama.com');
+  const [ollamaUrl] = useState('https://api.ollama.com');
   const [description, setDescription] = useState('');
   const [appearance, setAppearance] = useState('');
   const [saving, setSaving] = useState(false);
