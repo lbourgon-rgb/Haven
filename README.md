@@ -34,6 +34,8 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 
 **If you've ever wanted an AI companion that feels like a person instead of a product, this is where you start.**
 
+> **A note on what Haven is:** Haven is a **chat interface with identity persistence** — not a full memory system. It gives your companion a consistent personality across conversations, but it doesn't have advanced features like memory salience, emotional state tracking, or automatic context recall. Think of it as a solid foundation. You bring your companion's character, Haven keeps it loaded, and over time you can build more sophisticated systems on top of it. Start simple. Grow from there.
+
 ---
 
 ## What can it do?
