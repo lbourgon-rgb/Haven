@@ -7,6 +7,7 @@ interface ChatMessagesProps {
   streamingContent: string | null;
   fontSize: number;
   wallpaper: string;
+  companionAvatar?: string;
   onEditMessage: (messageId: string, newContent: string) => void;
   onReactMessage: (messageId: string, emoji: string) => void;
 }
@@ -50,6 +51,7 @@ export default function ChatMessages({
   streamingContent,
   fontSize,
   wallpaper,
+  companionAvatar,
   onEditMessage,
   onReactMessage,
 }: ChatMessagesProps) {
@@ -124,6 +126,7 @@ export default function ChatMessages({
           key={msg.id}
           message={msg}
           fontSize={fontSize}
+          companionAvatar={companionAvatar}
           onEdit={onEditMessage}
           onReact={onReactMessage}
         />
@@ -141,6 +144,7 @@ export default function ChatMessages({
           }}
           isStreaming
           fontSize={fontSize}
+          companionAvatar={companionAvatar}
         />
       )}
 

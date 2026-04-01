@@ -10,6 +10,8 @@ interface ChatContainerProps {
   threadId: string | null;
   onThreadCreated: (id: string) => void;
   companionName: string;
+  companionAvatar?: string;
+  onBack?: () => void;
 }
 
 const LS_FONT = 'haven-font-size';
@@ -17,7 +19,7 @@ const LS_WALLPAPER = 'haven-wallpaper';
 const LS_MODEL = 'haven-model';
 const LS_PROVIDER = 'haven-provider';
 
-export default function ChatContainer({ threadId, onThreadCreated, companionName }: ChatContainerProps) {
+export default function ChatContainer({ threadId, onThreadCreated, companionName, companionAvatar, onBack }: ChatContainerProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem(LS_MODEL) || 'openai/gpt-4o-mini');
@@ -196,16 +198,45 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       {/* Header */}
       <div style={{
-        display: 'flex', alignItems: 'center', padding: '10px 16px',
+        display: 'flex', alignItems: 'center', padding: '8px 12px',
         borderBottom: '1px solid var(--haven-border)', background: 'var(--haven-surface)',
-        gap: '10px', flexShrink: 0,
+        gap: '8px', flexShrink: 0,
       }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)' }}>{companionName}</span>
-          <span style={{
-            width: '8px', height: '8px', borderRadius: '50%',
-            background: '#4ade80', flexShrink: 0,
-          }} />
+        {/* Back button */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--haven-text-muted)', padding: '4px', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+          >
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+        )}
+        {/* Avatar + name */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          {companionAvatar ? (
+            <img src={companionAvatar} alt="" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+          ) : (
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+              background: 'var(--haven-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontSize: '14px', fontWeight: 600,
+            }}>
+              {companionName.charAt(0)}
+            </div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--haven-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companionName}</div>
+            <div style={{ fontSize: '10px', color: '#4ade80', display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+              online
+            </div>
+          </div>
         </div>
 
         <ModelSelector
@@ -308,6 +339,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
         streamingContent={streamingContent}
         fontSize={fontSize}
         wallpaper={wallpaper}
+        companionAvatar={companionAvatar}
         onEditMessage={handleEditMessage}
         onReactMessage={handleReactMessage}
       />

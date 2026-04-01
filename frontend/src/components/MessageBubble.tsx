@@ -5,6 +5,7 @@ interface MessageBubbleProps {
   message: Message;
   isStreaming?: boolean;
   fontSize?: number;
+  companionAvatar?: string;
   onEdit?: (messageId: string, newContent: string) => void;
   onReact?: (messageId: string, emoji: string) => void;
 }
@@ -75,7 +76,7 @@ function formatTimestamp(dateStr: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function MessageBubble({ message, isStreaming, fontSize = 15, onEdit, onReact }: MessageBubbleProps) {
+export default function MessageBubble({ message, isStreaming, fontSize = 15, companionAvatar, onEdit, onReact }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.content);
@@ -113,9 +114,13 @@ export default function MessageBubble({ message, isStreaming, fontSize = 15, onE
 
   return (
     <div
-      style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: '8px', padding: '0 16px' }}
+      style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: '8px', padding: '0 16px', gap: '8px' }}
       onClick={() => setShowActions(!showActions)}
     >
+      {/* Companion avatar */}
+      {isCompanion && companionAvatar && (
+        <img src={companionAvatar} alt="" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, alignSelf: 'flex-end' }} />
+      )}
       <div style={{ maxWidth: '80%', minWidth: '60px' }}>
         {/* Bubble */}
         <div

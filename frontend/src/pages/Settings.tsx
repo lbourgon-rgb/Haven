@@ -10,9 +10,10 @@ import WallpaperPicker from '../components/WallpaperPicker';
 
 interface SettingsProps {
   onImport?: () => void;
+  onBack?: () => void;
 }
 
-export default function Settings({ onImport }: SettingsProps) {
+export default function Settings({ onImport, onBack }: SettingsProps) {
   // Companion
   const [compName, setCompName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -187,9 +188,12 @@ export default function Settings({ onImport }: SettingsProps) {
     }}>
       {/* Back link */}
       <div style={{ marginBottom: '20px' }}>
-        <a href="/" style={{ color: 'var(--haven-text-muted)', textDecoration: 'none', fontSize: '13px' }}>
+        <button
+          onClick={onBack || (() => window.history.back())}
+          style={{ background: 'none', border: 'none', color: 'var(--haven-text-muted)', cursor: 'pointer', fontSize: '13px', padding: 0 }}
+        >
           ← Back to chat
-        </a>
+        </button>
       </div>
 
       <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--haven-text)', marginBottom: '20px' }}>Settings</h1>
