@@ -10,6 +10,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [description, setDescription] = useState('');
+  const [descFile, setDescFile] = useState('');
   const [appearance, setAppearance] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -69,54 +70,99 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         settings.provider = 'openrouter';
       }
       await updateSettings(settings);
-      // Parse description — detect JSON character cards
-      if (description.trim()) {
-        let parsed = false;
+
+      // Flexible character card parser — handles any JSON format
+      const parseCharacterData = (text: string): { name?: string; entries: Array<{ content: string; type: string; priority: number; pinned?: boolean }> } => {
+        const entries: Array<{ content: string; type: string; priority: number; pinned?: boolean }> = [];
+        let cardName: string | undefined;
+
         try {
-          const json = JSON.parse(description.trim());
-          // SillyTavern / TavernAI / Chub character card format
-          const card = json.data || json;
-          if (card.description || card.personality || card.name) {
-            parsed = true;
-            if (card.name && !name) setName(card.name);
-            if (card.description) await addIdentity({ content: card.description, identity_type: 'backstory', priority: 10, pinned: true });
-            if (card.personality) await addIdentity({ content: card.personality, identity_type: 'personality', priority: 9, pinned: true });
-            if (card.scenario) await addIdentity({ content: card.scenario, identity_type: 'dynamic', priority: 7 });
-            if (card.first_mes) await addIdentity({ content: `First message style: ${card.first_mes}`, identity_type: 'voice', priority: 6 });
-            if (card.mes_example) await addIdentity({ content: `Example dialogue:\n${card.mes_example}`, identity_type: 'voice', priority: 5 });
-            if (card.system_prompt) await addIdentity({ content: card.system_prompt, identity_type: 'anchor', priority: 10, pinned: true });
-            if (card.creator_notes) await addIdentity({ content: card.creator_notes, identity_type: 'dynamic', priority: 3 });
+          const json = JSON.parse(text);
+
+          // Recursively find all string values in the JSON with their key paths
+          const extract = (obj: any, prefix = '') => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const [key, val] of Object.entries(obj)) {
+              const k = key.toLowerCase().replace(/[_-]/g, '');
+              if (typeof val === 'string' && val.trim()) {
+                // Map any key that looks relevant
+                const v = val.trim();
+
+                // Name detection
+                if ((k === 'name' || k === 'charname' || k === 'charactername') && !cardName) {
+                  cardName = v;
+                  continue;
+                }
+
+                // Identity / backstory
+                if (['description', 'backstory', 'bio', 'background', 'lore', 'characterdescription', 'chardescription'].includes(k)) {
+                  entries.push({ content: v, type: 'backstory', priority: 10, pinned: true });
+                }
+                // Personality
+                else if (['personality', 'personalitysummary', 'traits', 'charactertraits', 'persona'].includes(k)) {
+                  entries.push({ content: v, type: 'personality', priority: 9, pinned: true });
+                }
+                // System prompt / instructions
+                else if (['systemprompt', 'system', 'instructions', 'prompt', 'posthistoryinstructions', 'charinstruction'].includes(k)) {
+                  entries.push({ content: v, type: 'anchor', priority: 10, pinned: true });
+                }
+                // Scenario / context
+                else if (['scenario', 'context', 'world', 'setting', 'worldinfo'].includes(k)) {
+                  entries.push({ content: v, type: 'dynamic', priority: 7 });
+                }
+                // Voice / dialogue
+                else if (['firstmes', 'firstmessage', 'greeting', 'openingmessage'].includes(k)) {
+                  entries.push({ content: `First message style: ${v}`, type: 'voice', priority: 6 });
+                }
+                else if (['mesexample', 'messageexample', 'exampledialogue', 'examplemessages', 'dialogueexamples'].includes(k)) {
+                  entries.push({ content: `Example dialogue:\n${v}`, type: 'voice', priority: 5 });
+                }
+                // Appearance
+                else if (['appearance', 'charappearance', 'looks', 'physicaldescription', 'visual'].includes(k)) {
+                  entries.push({ content: v, type: 'dynamic', priority: 8 });
+                }
+                // Notes / meta
+                else if (['creatornotes', 'notes', 'creatorscomment', 'comment'].includes(k)) {
+                  entries.push({ content: v, type: 'dynamic', priority: 3 });
+                }
+              }
+              // Recurse into nested objects (handles data.extensions, etc.)
+              else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                extract(val, `${prefix}${key}.`);
+              }
+            }
+          };
+
+          extract(json);
+          return { name: cardName, entries };
+        } catch {
+          return { entries: [] };
+        }
+      };
+
+      // Parse description
+      if (description.trim()) {
+        const result = parseCharacterData(description.trim());
+        if (result.entries.length > 0) {
+          if (result.name && !name) setName(result.name);
+          for (const entry of result.entries) {
+            await addIdentity({ content: entry.content, identity_type: entry.type, priority: entry.priority, pinned: entry.pinned });
           }
-        } catch { /* not JSON, treat as plain text */ }
-        if (!parsed) {
-          await addIdentity({
-            content: description.trim(),
-            identity_type: 'backstory',
-            priority: 10,
-            pinned: true,
-          });
+        } else {
+          // Not JSON or no recognized fields — store as plain text
+          await addIdentity({ content: description.trim(), identity_type: 'backstory', priority: 10, pinned: true });
         }
       }
-      // Parse appearance — also detect JSON
+
+      // Parse appearance
       if (appearance.trim()) {
-        let parsed = false;
-        try {
-          const json = JSON.parse(appearance.trim());
-          const card = json.data || json;
-          if (card.description || card.personality || card.name) {
-            parsed = true;
-            if (card.description) await addIdentity({ content: card.description, identity_type: 'dynamic', priority: 8 });
-            // Extract appearance-specific fields if present
-            if (card.appearance) await addIdentity({ content: card.appearance, identity_type: 'dynamic', priority: 8 });
-            if (card.char_appearance) await addIdentity({ content: card.char_appearance, identity_type: 'dynamic', priority: 8 });
+        const result = parseCharacterData(appearance.trim());
+        if (result.entries.length > 0) {
+          for (const entry of result.entries) {
+            await addIdentity({ content: entry.content, identity_type: entry.type, priority: entry.priority, pinned: entry.pinned });
           }
-        } catch { /* not JSON */ }
-        if (!parsed) {
-          await addIdentity({
-            content: appearance.trim(),
-            identity_type: 'dynamic',
-            priority: 8,
-          });
+        } else {
+          await addIdentity({ content: appearance.trim(), identity_type: 'dynamic', priority: 8 });
         }
       }
       onComplete();
@@ -262,7 +308,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder={`Who is ${name || 'your companion'}? Their personality, voice, values, boundaries, relationship to you...\n\nYou can paste an existing character card or personality doc here.`}
+              placeholder={`Who is ${name || 'your companion'}? Their personality, voice, values, boundaries, relationship to you...\n\nOr upload / paste a JSON character card below.`}
               rows={8}
               autoFocus
               style={{
@@ -273,6 +319,31 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 minHeight: '120px', maxHeight: '300px',
               }}
             />
+            <label style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              marginTop: '8px', padding: '8px', borderRadius: '8px',
+              border: '1px dashed var(--haven-border)', cursor: 'pointer',
+              color: descFile ? 'var(--haven-accent)' : 'var(--haven-text-muted)', fontSize: '12px',
+            }}>
+              {descFile ? `Loaded: ${descFile}` : 'Upload JSON character card (.json)'}
+              <input type="file" accept=".json,application/json" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const text = reader.result as string;
+                  setDescription(text);
+                  setDescFile(file.name);
+                  // Try to extract name from card
+                  try {
+                    const json = JSON.parse(text);
+                    const card = json.data || json;
+                    if (card.name && !name) setName(card.name);
+                  } catch {}
+                };
+                reader.readAsText(file);
+              }} />
+            </label>
             {error && (
               <p style={{ color: '#f87171', fontSize: '12px', marginTop: '8px', textAlign: 'center' }}>{error}</p>
             )}
