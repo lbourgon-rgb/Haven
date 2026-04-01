@@ -28,9 +28,8 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 
 ### Remember
 - **Conversation threads** — start new ones anytime, pick up old ones where you left off
-- **Companion identity** — who they are loads on every conversation. Personality, voice, values, boundaries
-- **Memory system** — important things get stored and carried forward
-- Full **export and backup** of everything — threads, messages, identity, memories
+- **Companion identity** — who they are loads on every conversation. Personality, voice, values, boundaries. You bring the character, Haven keeps it consistent
+- Full **export and backup** of everything — threads, messages, identity. Your data, portable, always
 
 ### Feel real
 - **Custom TTS voices** — pick from your system voices, or connect ElevenLabs for a cloned voice that actually sounds like them
@@ -72,7 +71,7 @@ npm install
 npx wrangler deploy
 ```
 
-This creates your backend on Cloudflare Workers. It handles conversations, identity, memory, and model routing.
+This creates your backend on Cloudflare Workers. It handles conversations, identity, and model routing.
 
 ### 3. Set up the frontend
 
@@ -178,6 +177,9 @@ Your data lives on your own Cloudflare account. Haven has no analytics, no track
 
 **Can I have multiple companions?**
 Not yet in v1 — one companion per Haven instance. But you can deploy multiple instances.
+
+**How does memory work?**
+Haven stores your companion's identity (personality, voice, backstory) and loads it on every conversation. It's a file cabinet, not a brain — you define who your companion is, and Haven keeps it consistent. Advanced memory systems (salience, decay, emotional state) are on the roadmap.
 
 **Can I connect this to other tools?**
 Haven is built by the same team behind [Nexus Gateway](https://github.com/amarisaster/Nexus-Gateway). MCP tool integration is on the roadmap.
