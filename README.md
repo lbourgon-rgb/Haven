@@ -40,6 +40,22 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 
 ---
 
+## See it in action
+
+<p align="center">
+  <video src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/tour.mp4" width="300" controls></video>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="200" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-key.jpg" width="200" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-identity.jpg" width="200" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/settings.jpg" width="200" />
+</p>
+<p align="center"><em>Setup wizard: name your companion, paste any API key, define their personality, describe their appearance.</em></p>
+
+---
+
 ## What can it do?
 
 ### Talk
