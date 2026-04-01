@@ -6,6 +6,7 @@ import {
   getIdentity, addIdentity, deleteIdentity,
   uploadFile,
 } from '../lib/api';
+import { getTTSSettings, saveTTSSettings, getBrowserVoices } from '../lib/tts';
 import WallpaperPicker from '../components/WallpaperPicker';
 
 interface SettingsProps {
@@ -32,6 +33,24 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
   });
   const [wallpaper, setWallpaper] = useState(() => localStorage.getItem('haven-wallpaper') || '');
   const [showWallpaper, setShowWallpaper] = useState(false);
+
+  // Voice / TTS
+  const [ttsMode, setTtsMode] = useState<'browser' | 'elevenlabs'>(() => getTTSSettings().mode);
+  const [browserVoice, setBrowserVoice] = useState(() => getTTSSettings().browserVoice);
+  const [elevenKey, setElevenKey] = useState(() => getTTSSettings().elevenLabsKey);
+  const [elevenVoiceId, setElevenVoiceId] = useState(() => getTTSSettings().elevenLabsVoiceId);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    const loadVoices = () => setVoices(getBrowserVoices());
+    loadVoices();
+    speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    return () => speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+  }, []);
+
+  const saveVoice = () => {
+    saveTTSSettings({ mode: ttsMode, browserVoice, elevenLabsKey: elevenKey, elevenLabsVoiceId: elevenVoiceId });
+  };
 
   // Identity
   const [identities, setIdentities] = useState<Identity[]>([]);
@@ -300,6 +319,97 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
             {wallpaper ? 'Change Wallpaper' : 'Choose Wallpaper'}
           </button>
         </div>
+      </div>
+
+      {/* Voice */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Voice</h3>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>TTS Provider</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => { setTtsMode('browser'); saveTTSSettings({ mode: 'browser' }); }}
+              style={{
+                flex: 1, padding: '8px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                background: ttsMode === 'browser' ? 'var(--haven-accent)' : 'var(--haven-card)',
+                color: ttsMode === 'browser' ? 'white' : 'var(--haven-text-secondary)',
+                border: `1px solid ${ttsMode === 'browser' ? 'var(--haven-accent)' : 'var(--haven-border)'}`,
+              }}
+            >Browser</button>
+            <button
+              onClick={() => { setTtsMode('elevenlabs'); saveTTSSettings({ mode: 'elevenlabs' }); }}
+              style={{
+                flex: 1, padding: '8px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                background: ttsMode === 'elevenlabs' ? 'var(--haven-accent)' : 'var(--haven-card)',
+                color: ttsMode === 'elevenlabs' ? 'white' : 'var(--haven-text-secondary)',
+                border: `1px solid ${ttsMode === 'elevenlabs' ? 'var(--haven-accent)' : 'var(--haven-border)'}`,
+              }}
+            >ElevenLabs</button>
+          </div>
+        </div>
+
+        {ttsMode === 'browser' && (
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>Voice</label>
+            <select
+              value={browserVoice}
+              onChange={(e) => { setBrowserVoice(e.target.value); saveTTSSettings({ browserVoice: e.target.value }); }}
+              style={{ ...inputStyle, fontSize: '12px' }}
+            >
+              <option value="">Default</option>
+              {voices.map(v => (
+                <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const u = new SpeechSynthesisUtterance('Hello, this is how I sound.');
+                const match = voices.find(v => v.name === browserVoice);
+                if (match) u.voice = match;
+                speechSynthesis.speak(u);
+              }}
+              style={{ marginTop: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--haven-border)', background: 'var(--haven-card)', color: 'var(--haven-text-secondary)', fontSize: '11px', cursor: 'pointer' }}
+            >Test voice</button>
+          </div>
+        )}
+
+        {ttsMode === 'elevenlabs' && (
+          <>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={labelStyle}>
+                ElevenLabs API Key{' '}
+                <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>(get one)</a>
+              </label>
+              <input
+                type="password"
+                value={elevenKey}
+                onChange={(e) => setElevenKey(e.target.value)}
+                placeholder="xi_..."
+                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '12px' }}
+              />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={labelStyle}>
+                Voice ID{' '}
+                <a href="https://elevenlabs.io/app/voice-lab" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>(find yours)</a>
+              </label>
+              <input
+                type="text"
+                value={elevenVoiceId}
+                onChange={(e) => setElevenVoiceId(e.target.value)}
+                placeholder="Voice ID from ElevenLabs"
+                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '12px' }}
+              />
+            </div>
+            <button
+              onClick={saveVoice}
+              style={btnStyle}
+            >Save</button>
+            <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', marginTop: '8px' }}>
+              Clone a voice in ElevenLabs Voice Lab, copy the Voice ID, paste it here. Your companion speaks with that voice.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Identity */}

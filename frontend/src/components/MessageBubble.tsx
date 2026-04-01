@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Message } from '../lib/types';
+import { speak, stop } from '../lib/tts';
 
 interface MessageBubbleProps {
   message: Message;
@@ -87,15 +88,12 @@ export default function MessageBubble({ message, isStreaming, fontSize = 15, com
 
   const handleTTS = () => {
     if (speaking) {
-      speechSynthesis.cancel();
+      stop();
       setSpeaking(false);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(message.content);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
     setSpeaking(true);
-    speechSynthesis.speak(utterance);
+    speak(message.content, () => setSpeaking(false));
   };
 
   const handleSaveEdit = () => {
