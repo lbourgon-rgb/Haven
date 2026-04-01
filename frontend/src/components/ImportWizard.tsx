@@ -3,6 +3,7 @@
  */
 
 import { useState, useRef } from 'react';
+import JSZip from 'jszip';
 import { autoDetectAndParse, type ImportResult } from '../lib/importers';
 import { createThread, updateCompanion, addIdentity } from '../lib/api';
 
@@ -22,24 +23,74 @@ export default function ImportWizard({ onClose, onComplete }: ImportWizardProps)
   const [importedCount, setImportedCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const parseJsonData = (data: any): ImportResult => {
+    return autoDetectAndParse(data);
+  };
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      const parsed = autoDetectAndParse(data);
-      setResult(parsed);
+      const isZip = file.name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
 
-      // Select all threads by default
-      setSelectedThreads(new Set(parsed.threads.map((_, i) => i)));
-      setStep('preview');
+      if (isZip) {
+        const zip = await JSZip.loadAsync(file);
+        const allThreads: ImportResult['threads'] = [];
+        const allErrors: string[] = [];
+        let detectedSource: ImportResult['source'] = 'unknown';
+        let identity: ImportResult['identity'];
+
+        // Find and parse all JSON files in the ZIP
+        const jsonFiles = Object.entries(zip.files).filter(
+          ([name, f]) => !f.dir && name.endsWith('.json')
+        );
+
+        if (jsonFiles.length === 0) {
+          allErrors.push('No JSON files found in the ZIP.');
+        }
+
+        for (const [name, zipFile] of jsonFiles) {
+          try {
+            const text = await zipFile.async('text');
+            const data = JSON.parse(text);
+
+            // ChatGPT exports: conversations.json is an array of conversations
+            // Some exports have multiple JSON files
+            const parsed = parseJsonData(data);
+
+            if (parsed.source !== 'unknown') detectedSource = parsed.source;
+            if (parsed.identity && !identity) identity = parsed.identity;
+            allThreads.push(...parsed.threads);
+            allErrors.push(...parsed.errors);
+          } catch {
+            allErrors.push(`Failed to parse ${name}`);
+          }
+        }
+
+        const merged: ImportResult = {
+          source: detectedSource,
+          threads: allThreads,
+          identity,
+          errors: allErrors,
+        };
+        setResult(merged);
+        setSelectedThreads(new Set(merged.threads.map((_, i) => i)));
+        setStep('preview');
+      } else {
+        // Regular JSON file
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const parsed = parseJsonData(data);
+        setResult(parsed);
+        setSelectedThreads(new Set(parsed.threads.map((_, i) => i)));
+        setStep('preview');
+      }
     } catch {
       setResult({
         source: 'unknown',
         threads: [],
-        errors: ['Failed to parse file. Make sure it\'s a valid JSON file.'],
+        errors: ['Failed to parse file. Supports .json and .zip files.'],
       });
       setStep('preview');
     }
@@ -145,10 +196,10 @@ export default function ImportWizard({ onClose, onComplete }: ImportWizardProps)
                 Bring your conversations home.
               </p>
               <p style={{ fontSize: '12px', color: 'var(--haven-text-muted)', marginBottom: '24px' }}>
-                Supports ChatGPT exports, Claude exports, SillyTavern character cards, and Haven exports.
+                Drop a .json or .zip file. Supports ChatGPT, Claude, SillyTavern, and Haven exports.
               </p>
 
-              <input ref={fileRef} type="file" accept=".json" onChange={handleFile} className="hidden" />
+              <input ref={fileRef} type="file" accept=".json,.zip" onChange={handleFile} className="hidden" />
 
               <button
                 onClick={() => fileRef.current?.click()}
@@ -158,7 +209,7 @@ export default function ImportWizard({ onClose, onComplete }: ImportWizardProps)
                   cursor: 'pointer', width: '100%',
                 }}
               >
-                Choose JSON file
+                Choose file (.json or .zip)
               </button>
 
               <div style={{ marginTop: '24px', textAlign: 'left' }}>
