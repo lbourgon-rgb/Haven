@@ -213,7 +213,7 @@ Questions, ideas, or just want to say hi:
 
 ## License
 
-[MIT](LICENSE) — Use it, fork it, make it yours. That's the whole point.
+[Apache 2.0](LICENSE) — Use it, fork it, make it yours. That's the whole point.
 
 ---
 
