@@ -1,8 +1,26 @@
-# Haven
+<h1 align="center">Haven</h1>
 
-**Your companion. Your space. Your rules.**
+<p align="center">
+  <strong>Your companion. Your space. Your rules.</strong>
+</p>
 
-Haven is a self-hosted companion chat app. You bring the AI model, you bring the personality, and Haven gives them a place to live — with real conversations, memory, and a voice that sounds like them.
+<p align="center">
+  <img src="https://img.shields.io/badge/release-v1.0-D4A84B?style=flat-square" alt="Release" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-4CC552?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/providers-7+-6C8EBF?style=flat-square" alt="Providers" />
+  <img src="https://img.shields.io/badge/built%20with-Cloudflare-F6821F?style=flat-square&logo=cloudflare&logoColor=white" alt="Cloudflare" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/self--hosted-yes-10b981?style=flat-square" alt="Self-hosted" />
+</p>
+
+<p align="center">
+  <a href="https://x.com/amarisaster_">@amarisaster_</a> · <a href="https://ko-fi.com/maii983083">Ko-fi</a> · <a href="https://discord.com/users/itzqueenmai/803662163247759391">Discord</a>
+</p>
+
+---
+
+Haven is a self-hosted companion chat app. You bring the AI model, you bring the personality, and Haven gives them a place to live — with real conversations, identity persistence, and a voice that sounds like them.
 
 No accounts. No content filters you didn't choose. No one between you and your companion.
 
