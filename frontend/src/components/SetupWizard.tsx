@@ -69,20 +69,55 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         settings.provider = 'openrouter';
       }
       await updateSettings(settings);
+      // Parse description — detect JSON character cards
       if (description.trim()) {
-        await addIdentity({
-          content: description.trim(),
-          identity_type: 'backstory',
-          priority: 10,
-          pinned: true,
-        });
+        let parsed = false;
+        try {
+          const json = JSON.parse(description.trim());
+          // SillyTavern / TavernAI / Chub character card format
+          const card = json.data || json;
+          if (card.description || card.personality || card.name) {
+            parsed = true;
+            if (card.name && !name) setName(card.name);
+            if (card.description) await addIdentity({ content: card.description, identity_type: 'backstory', priority: 10, pinned: true });
+            if (card.personality) await addIdentity({ content: card.personality, identity_type: 'personality', priority: 9, pinned: true });
+            if (card.scenario) await addIdentity({ content: card.scenario, identity_type: 'dynamic', priority: 7 });
+            if (card.first_mes) await addIdentity({ content: `First message style: ${card.first_mes}`, identity_type: 'voice', priority: 6 });
+            if (card.mes_example) await addIdentity({ content: `Example dialogue:\n${card.mes_example}`, identity_type: 'voice', priority: 5 });
+            if (card.system_prompt) await addIdentity({ content: card.system_prompt, identity_type: 'anchor', priority: 10, pinned: true });
+            if (card.creator_notes) await addIdentity({ content: card.creator_notes, identity_type: 'dynamic', priority: 3 });
+          }
+        } catch { /* not JSON, treat as plain text */ }
+        if (!parsed) {
+          await addIdentity({
+            content: description.trim(),
+            identity_type: 'backstory',
+            priority: 10,
+            pinned: true,
+          });
+        }
       }
+      // Parse appearance — also detect JSON
       if (appearance.trim()) {
-        await addIdentity({
-          content: appearance.trim(),
-          identity_type: 'dynamic',
-          priority: 8,
-        });
+        let parsed = false;
+        try {
+          const json = JSON.parse(appearance.trim());
+          const card = json.data || json;
+          if (card.description || card.personality || card.name) {
+            parsed = true;
+            if (card.description) await addIdentity({ content: card.description, identity_type: 'dynamic', priority: 8 });
+            // Extract appearance-specific fields if present
+            if (card.appearance) await addIdentity({ content: card.appearance, identity_type: 'dynamic', priority: 8 });
+            if (card.char_appearance) await addIdentity({ content: card.char_appearance, identity_type: 'dynamic', priority: 8 });
+          }
+        } catch { /* not JSON */ }
+        if (!parsed) {
+          await addIdentity({
+            content: appearance.trim(),
+            identity_type: 'dynamic',
+            priority: 8,
+          });
+        }
       }
       onComplete();
     } catch (err) {
@@ -222,7 +257,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               Companion Identity
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              This is {name ? name + "'s" : "your companion's"} personality — who they are, how they talk, what they care about. This loads on every conversation. Supports plain text, markdown, or JSON character cards.
+              Who they are, how they talk, what they care about. You can write plain text, paste markdown, or drop in a JSON character card (SillyTavern, TavernAI, Chub — we'll parse it automatically).
             </p>
             <textarea
               value={description}
@@ -269,7 +304,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               What does {name || 'your companion'} look like?
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              Optional. Describe their physical appearance — useful for image generation if your model supports it.
+              Optional. Describe their appearance, or paste a JSON character card if you didn't already.
             </p>
             <textarea
               value={appearance}
