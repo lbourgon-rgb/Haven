@@ -43,9 +43,11 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 ## See it in action
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/tour.mp4" width="300" controls></video>
+  <a href="https://github.com/amarisaster/Haven/blob/main/screenshots/tour.mp4?raw=true">
+    <img src="https://img.shields.io/badge/Watch%20Tour-mp4-D4A84B?style=for-the-badge" alt="Watch Tour" />
+  </a>
 </p>
-<p align="center"><em>Quick tour of Haven's setup flow. (The URL shown in the video is a test instance that no longer exists.)</em></p>
+<p align="center"><em>Quick tour of Haven's setup flow. (The URL shown is a test instance that no longer exists.)</em></p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="200" />
