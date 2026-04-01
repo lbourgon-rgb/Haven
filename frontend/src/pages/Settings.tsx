@@ -100,7 +100,7 @@ export default function Settings({ onImport }: SettingsProps) {
         settings.custom_key = key;
         settings.custom_base_url = 'https://api.x.ai/v1';
         settings.provider = 'xai';
-      } else if (key.length > 20 && /^[a-f0-9]+\./.test(key)) {
+      } else if (key.length > 20 && /^[a-f0-9]+$/.test(key)) {
         settings.ollama_key = key;
         settings.provider = 'ollama';
       } else if (key) {
@@ -255,7 +255,7 @@ export default function Settings({ onImport }: SettingsProps) {
               if (k.startsWith('sk-ant-')) return 'Anthropic detected';
               if (k.startsWith('sk-')) return 'OpenAI detected';
               if (k.startsWith('xai-')) return 'xAI / Grok detected';
-              if (k.length > 20 && /^[a-f0-9]+\./.test(k)) return 'Ollama Cloud detected';
+              if (k.length > 20 && /^[a-f0-9]+$/.test(k)) return 'Ollama Cloud detected';
               if (k) return 'Will route through OpenRouter';
               return 'Supports: OpenRouter, Ollama, OpenAI, Anthropic, Groq, xAI, or any local URL';
             })()}
