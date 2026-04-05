@@ -251,7 +251,6 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
               }} />
             </label>
           </div>
-          <input type="text" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="...or paste a URL" style={{ ...inputStyle, marginTop: '8px', fontSize: '12px' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={saveCompanion} disabled={compSaving} style={btnStyle}>
