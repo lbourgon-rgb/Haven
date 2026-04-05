@@ -478,11 +478,18 @@ export default {
           } catch {}
         }
 
-        // Add Groq models if configured
+        // Add custom provider models (HuggingFace, Groq, OpenAI, etc.)
         const customKey = await getSettingValue(env.DB, 'custom_key');
         const customBaseUrl = await getSettingValue(env.DB, 'custom_base_url');
-        const detectedProvider = await getSettingValue(env.DB, 'provider');
         if (customKey && customBaseUrl) {
+          // Detect provider from URL, not the shared provider field
+          let customProvider = 'custom';
+          if (customBaseUrl.includes('huggingface') || customBaseUrl.includes('hf.co')) customProvider = 'huggingface';
+          else if (customBaseUrl.includes('groq.com')) customProvider = 'groq';
+          else if (customBaseUrl.includes('openai.com')) customProvider = 'openai';
+          else if (customBaseUrl.includes('anthropic.com')) customProvider = 'anthropic';
+          else if (customBaseUrl.includes('x.ai')) customProvider = 'xai';
+
           try {
             const res = await fetch(`${customBaseUrl}/models`, {
               headers: { 'Authorization': `Bearer ${customKey}` },
@@ -492,7 +499,7 @@ export default {
               models.push({
                 id: m.id,
                 name: m.id,
-                provider: detectedProvider || 'custom',
+                provider: customProvider,
                 tier: 'included',
               });
             }
