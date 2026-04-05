@@ -101,6 +101,10 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
       if (key.startsWith('http')) {
         settings.ollama_url = key;
         settings.provider = 'ollama';
+      } else if (key.startsWith('hf_')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api-inference.huggingface.co/v1';
+        settings.provider = 'huggingface';
       } else if (key.startsWith('sk-or-')) {
         settings.openrouter_key = key;
         settings.provider = 'openrouter';
@@ -272,6 +276,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
           <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', margin: '4px 0 0', lineHeight: '1.4' }}>
             {(() => {
               const k = apiKey.trim();
+              if (k.startsWith('hf_')) return 'Hugging Face detected';
               if (k.startsWith('sk-or-')) return 'OpenRouter detected';
               if (k.startsWith('http')) return 'Local Ollama URL detected';
               if (k.startsWith('gsk_')) return 'Groq detected';

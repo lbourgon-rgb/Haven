@@ -17,6 +17,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const detectProvider = (key: string): { provider: string; label: string } => {
     const k = key.trim();
+    if (k.startsWith('hf_')) return { provider: 'huggingface', label: 'Hugging Face' };
     if (k.startsWith('sk-or-')) return { provider: 'openrouter', label: 'OpenRouter' };
     if (k.startsWith('sk-ant-')) return { provider: 'anthropic', label: 'Anthropic' };
     if (k.startsWith('sk-proj-') || k.startsWith('sk-')) return { provider: 'openai', label: 'OpenAI' };
@@ -42,7 +43,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         provider: '', custom_base_url: '', custom_key: '',
       };
       const key = apiKey.trim();
-      if (key.startsWith('sk-or-')) {
+      if (key.startsWith('hf_')) {
+        settings.custom_key = key;
+        settings.custom_base_url = 'https://api-inference.huggingface.co/v1';
+        settings.provider = 'huggingface';
+      } else if (key.startsWith('sk-or-')) {
         settings.openrouter_key = key;
         settings.provider = 'openrouter';
       } else if (key.startsWith('gsk_')) {
@@ -240,7 +245,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               Paste your API key
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              We'll auto-detect the provider. Supports OpenRouter, Ollama, OpenAI, Anthropic, Groq, xAI, and Google AI.
+              We'll auto-detect the provider. Supports OpenRouter, Ollama, Hugging Face, OpenAI, Anthropic, Groq, xAI, and Google AI.
             </p>
 
             <input
@@ -269,9 +274,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               {' · '}
               <a href="https://ollama.com/account/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>Ollama</a>
               {' · '}
-              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>OpenAI</a>
+              <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>Hugging Face</a>
               {' · '}
               <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>Groq</a>
+              {' · '}
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--haven-accent)', textDecoration: 'none' }}>OpenAI</a>
             </p>
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
