@@ -411,36 +411,51 @@ export default {
 
       // ---- Models ----
       if (path === '/api/models' && request.method === 'GET') {
-        const models = [
-          // Free OpenRouter models
-          { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super 120B (free)', provider: 'openrouter', tier: 'free' },
-          { id: 'stepfun/step-3.5-flash:free', name: 'Step 3.5 Flash (free)', provider: 'openrouter', tier: 'free' },
-          { id: 'qwen/qwen3-next-80b-a3b-instruct:free', name: 'Qwen 3 Next 80B (free)', provider: 'openrouter', tier: 'free' },
-          { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', provider: 'openrouter', tier: 'free' },
-          // Paid OpenRouter
-          { id: 'qwen/qwen3-235b-a22b', name: 'Qwen 3 235B', provider: 'openrouter', tier: 'paid' },
-          { id: 'qwen/qwen3.5-397b-a17b', name: 'Qwen 3.5 397B', provider: 'openrouter', tier: 'paid' },
-          { id: 'minimax/minimax-m2-her', name: 'MiniMax M2 Her', provider: 'openrouter', tier: 'paid' },
-          { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'openrouter', tier: 'paid' },
-        ];
+        const models: Array<{ id: string; name: string; provider: string; tier: string }> = [];
+        const hasOpenRouter = env.OPENROUTER_API_KEY || await getSettingValue(env.DB, 'openrouter_key');
 
-        // Add Ollama models if configured (check env + D1 settings)
+        // Fetch live models from OpenRouter
+        try {
+          const res = await fetch('https://openrouter.ai/api/v1/models');
+          const data = await res.json() as any;
+          for (const m of (data.data || [])) {
+            const isFree = m.id?.endsWith(':free') || (Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0);
+            // Show free models always, paid only if user has a key
+            if (isFree || hasOpenRouter) {
+              models.push({
+                id: m.id,
+                name: m.name || m.id,
+                provider: 'openrouter',
+                tier: isFree ? 'free' : 'paid',
+              });
+            }
+          }
+        } catch {
+          // Fallback if OpenRouter API is down
+          models.push(
+            { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openrouter', tier: 'paid' },
+            { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'openrouter', tier: 'paid' },
+          );
+        }
+
+        // Add Ollama models if configured
         const ollamaUrl = env.OLLAMA_URL || await getSettingValue(env.DB, 'ollama_url') || 'https://api.ollama.com';
         const ollamaKey = await getSettingValue(env.DB, 'ollama_key');
         if (ollamaKey || (ollamaUrl && ollamaUrl.startsWith('http'))) {
           try {
             const ollamaHeaders: Record<string, string> = {};
             if (ollamaKey) ollamaHeaders['Authorization'] = `Bearer ${ollamaKey}`;
-            // Try OpenAI-compatible /v1/models first (Ollama Cloud), fall back to native /api/tags (local)
             let ollamaModels: string[] = [];
             try {
               const res = await fetch(`${ollamaUrl}/v1/models`, { headers: ollamaHeaders });
               const data = await res.json() as any;
               ollamaModels = (data.data || []).map((m: any) => m.id);
             } catch {
-              const res = await fetch(`${ollamaUrl}/api/tags`, { headers: ollamaHeaders });
-              const data = await res.json() as any;
-              ollamaModels = (data.models || []).map((m: any) => m.name);
+              try {
+                const res = await fetch(`${ollamaUrl}/api/tags`, { headers: ollamaHeaders });
+                const data = await res.json() as any;
+                ollamaModels = (data.models || []).map((m: any) => m.name);
+              } catch {}
             }
             for (const id of ollamaModels) {
               models.push({ id, name: id, provider: 'ollama', tier: 'included' });
@@ -448,13 +463,28 @@ export default {
           } catch {}
         }
 
-        const hasOpenRouter = env.OPENROUTER_API_KEY || await getSettingValue(env.DB, 'openrouter_key');
-        // Always show free models (no key needed). Filter paid OpenRouter models if no key.
-        return json(models.filter(m => {
-          if (m.provider === 'ollama') return true;
-          if (m.tier === 'free') return true;
-          return !!hasOpenRouter;
-        }));
+        // Add Groq models if configured
+        const customKey = await getSettingValue(env.DB, 'custom_key');
+        const customBaseUrl = await getSettingValue(env.DB, 'custom_base_url');
+        const detectedProvider = await getSettingValue(env.DB, 'provider');
+        if (customKey && customBaseUrl) {
+          try {
+            const res = await fetch(`${customBaseUrl}/models`, {
+              headers: { 'Authorization': `Bearer ${customKey}` },
+            });
+            const data = await res.json() as any;
+            for (const m of (data.data || [])) {
+              models.push({
+                id: m.id,
+                name: m.id,
+                provider: detectedProvider || 'custom',
+                tier: 'included',
+              });
+            }
+          } catch {}
+        }
+
+        return json(models);
       }
 
       // ---- Import Message (bulk insert) ----
