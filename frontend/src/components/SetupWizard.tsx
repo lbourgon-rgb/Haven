@@ -45,7 +45,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const key = apiKey.trim();
       if (key.startsWith('hf_')) {
         settings.custom_key = key;
-        settings.custom_base_url = 'https://api-inference.huggingface.co/v1';
+        settings.custom_base_url = 'https://router.huggingface.co/v1';
         settings.provider = 'huggingface';
       } else if (key.startsWith('sk-or-')) {
         settings.openrouter_key = key;
