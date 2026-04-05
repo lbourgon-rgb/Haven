@@ -71,9 +71,15 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
       const connected: string[] = [];
       if (s.openrouter_key) connected.push('OpenRouter');
       if (s.ollama_key) connected.push('Ollama');
-      if (s.custom_key && s.provider) {
-        const labels: Record<string, string> = { huggingface: 'Hugging Face', groq: 'Groq', openai: 'OpenAI', anthropic: 'Anthropic', xai: 'xAI' };
-        connected.push(labels[s.provider] || s.provider);
+      if (s.custom_key) {
+        // Detect provider from base URL, not the shared provider field
+        const url = s.custom_base_url || '';
+        if (url.includes('huggingface') || url.includes('hf.co')) connected.push('Hugging Face');
+        else if (url.includes('groq.com')) connected.push('Groq');
+        else if (url.includes('openai.com')) connected.push('OpenAI');
+        else if (url.includes('anthropic.com')) connected.push('Anthropic');
+        else if (url.includes('x.ai')) connected.push('xAI');
+        else if (s.provider) connected.push(s.provider);
       }
       setConnectedProviders(connected);
     }).catch(() => {});
