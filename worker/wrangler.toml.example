@@ -1,0 +1,19 @@
+name = "haven"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+# account_id = "your-account-id"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "haven-db"
+database_id = "your-d1-database-id"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "haven-files"
+
+[vars]
+# Set these via wrangler secret put or in your dashboard
+# OPENROUTER_API_KEY = "sk-or-..."
+# OLLAMA_URL = "https://api.ollama.com"
