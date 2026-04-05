@@ -25,6 +25,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
   const [apiKey, setApiKey] = useState('');
   const [apiSaving, setApiSaving] = useState(false);
   const [apiMsg, setApiMsg] = useState('');
+  const [connectedProviders, setConnectedProviders] = useState<string[]>([]);
 
   // Chat
   const [fontSize, setFontSize] = useState(() => {
@@ -65,8 +66,16 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
     }).catch(() => {});
 
     getSettings().then((s) => {
-      // Show whichever key is set
-      setApiKey(s.openrouter_key || s.ollama_key || s.ollama_url || '');
+      setApiKey(s.openrouter_key || s.ollama_key || s.custom_key || s.ollama_url || '');
+      // Track which providers have keys
+      const connected: string[] = [];
+      if (s.openrouter_key) connected.push('OpenRouter');
+      if (s.ollama_key) connected.push('Ollama');
+      if (s.custom_key && s.provider) {
+        const labels: Record<string, string> = { huggingface: 'Hugging Face', groq: 'Groq', openai: 'OpenAI', anthropic: 'Anthropic', xai: 'xAI' };
+        connected.push(labels[s.provider] || s.provider);
+      }
+      setConnectedProviders(connected);
     }).catch(() => {});
 
     loadIdentities();
@@ -260,7 +269,21 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
 
       {/* API Key */}
       <div style={sectionStyle}>
-        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Connect</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>Connect</h3>
+        {connectedProviders.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+            {connectedProviders.map(p => (
+              <span key={p} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+                fontSize: '11px', color: '#4ade80',
+                background: '#16a34a15', borderRadius: '6px', padding: '3px 8px',
+              }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', flexShrink: 0 }} />
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
         <div style={{ marginBottom: '12px' }}>
           <label style={labelStyle}>API Key</label>
           <input
