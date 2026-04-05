@@ -9,6 +9,7 @@ interface ModelSelectorProps {
 }
 
 const LS_FAVS = 'haven-fav-models';
+const LS_FILTER = 'haven-model-filter';
 
 function getFavorites(): Set<string> {
   try {
@@ -35,16 +36,19 @@ function tierBadge(tier: string) {
     <span style={{
       fontSize: '9px', fontWeight: 600, textTransform: 'uppercase',
       background: c.bg, color: c.text, borderRadius: '4px', padding: '1px 5px',
-      marginLeft: '6px',
+      marginLeft: '6px', flexShrink: 0,
     }}>{label}</span>
   );
 }
+
+type Filter = 'all' | 'free' | 'cloud' | 'paid';
 
 export default function ModelSelector({ selectedModel, selectedProvider, onModelChange }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [open, setOpen] = useState(false);
   const [hoveredModel, setHoveredModel] = useState<ModelInfo | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(getFavorites);
+  const [filter, setFilter] = useState<Filter>(() => (localStorage.getItem(LS_FILTER) as Filter) || 'all');
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,13 +73,25 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
     saveFavorites(next);
   };
 
+  const setFilterAndSave = (f: Filter) => {
+    setFilter(f);
+    localStorage.setItem(LS_FILTER, f);
+  };
+
   const modelKey = (m: ModelInfo) => `${m.provider}:${m.id}`;
 
-  // Separate favorites from the rest
-  const favModels = models.filter(m => favorites.has(modelKey(m)));
-  const otherModels = models.filter(m => !favorites.has(modelKey(m)));
+  const matchesFilter = (m: ModelInfo) => {
+    if (filter === 'all') return true;
+    if (filter === 'free') return m.tier === 'free';
+    if (filter === 'cloud') return m.tier === 'included' || m.provider === 'ollama';
+    if (filter === 'paid') return m.tier === 'paid';
+    return true;
+  };
 
-  // Group others by provider
+  const filtered = models.filter(matchesFilter);
+  const favModels = filtered.filter(m => favorites.has(modelKey(m)));
+  const otherModels = filtered.filter(m => !favorites.has(modelKey(m)));
+
   const grouped: Record<string, ModelInfo[]> = {};
   for (const m of otherModels) {
     (grouped[m.provider] ??= []).push(m);
@@ -106,7 +122,6 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
             cursor: 'pointer', textAlign: 'left', gap: '4px',
           }}
         >
-          {/* Star toggle */}
           <span
             onClick={(e) => toggleFav(e, key)}
             style={{
@@ -115,7 +130,7 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
               transition: 'color 0.15s',
             }}
           >{isFav ? '\u2605' : '\u2606'}</span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{m.name}</span>
           {tierBadge(m.tier)}
         </button>
         {hoveredModel?.id === m.id && hoveredModel?.provider === m.provider && (
@@ -145,6 +160,18 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
     );
   };
 
+  const filterBtn = (f: Filter, label: string) => (
+    <button
+      onClick={() => setFilterAndSave(f)}
+      style={{
+        padding: '3px 8px', borderRadius: '6px', border: 'none', fontSize: '10px',
+        fontWeight: 600, cursor: 'pointer',
+        background: filter === f ? 'var(--haven-accent)' : 'var(--haven-card)',
+        color: filter === f ? 'white' : 'var(--haven-text-muted)',
+      }}
+    >{label}</button>
+  );
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
@@ -152,9 +179,9 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
         style={{
           display: 'flex', alignItems: 'center', gap: '4px',
           background: 'var(--haven-card)', border: '1px solid var(--haven-border)',
-          borderRadius: '8px', padding: '4px 10px', fontSize: '12px',
+          borderRadius: '8px', padding: '4px 10px', fontSize: '11px',
           color: 'var(--haven-text-secondary)', cursor: 'pointer',
-          maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          maxWidth: '160px', overflow: 'hidden', whiteSpace: 'nowrap',
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
@@ -169,11 +196,23 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
           style={{
             position: 'absolute', top: '100%', right: 0, marginTop: '4px',
             background: 'var(--haven-surface)', border: '1px solid var(--haven-border)',
-            borderRadius: '10px', minWidth: '240px', maxHeight: '300px', overflowY: 'auto',
+            borderRadius: '10px', width: '260px', maxHeight: '350px', overflowY: 'auto',
             zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}
         >
-          {/* Favorites section */}
+          {/* Filter tabs */}
+          <div style={{
+            display: 'flex', gap: '4px', padding: '8px 10px',
+            borderBottom: '1px solid var(--haven-border)',
+            position: 'sticky', top: 0, background: 'var(--haven-surface)', zIndex: 1,
+          }}>
+            {filterBtn('all', 'All')}
+            {filterBtn('free', 'Free')}
+            {filterBtn('cloud', 'Cloud')}
+            {filterBtn('paid', 'Paid')}
+          </div>
+
+          {/* Favorites */}
           {favModels.length > 0 && (
             <div>
               <div style={{
@@ -184,7 +223,7 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
             </div>
           )}
 
-          {/* Other models grouped by provider */}
+          {/* Grouped by provider */}
           {Object.entries(grouped).map(([provider, providerModels]) => (
             <div key={provider}>
               <div style={{
@@ -194,9 +233,10 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
               {providerModels.map(renderModel)}
             </div>
           ))}
-          {models.length === 0 && (
+
+          {filtered.length === 0 && (
             <div style={{ padding: '16px', textAlign: 'center', color: 'var(--haven-text-muted)', fontSize: '12px' }}>
-              No models available
+              No models match this filter
             </div>
           )}
         </div>
