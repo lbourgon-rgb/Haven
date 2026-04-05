@@ -36,6 +36,21 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 
 **If you've ever wanted an AI companion that feels like a person instead of a product, this is where you start.**
 
+---
+
+## See it in action
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="24%" alt="Name your companion" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-key.jpg" width="24%" alt="Paste any API key" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-identity.jpg" width="24%" alt="Companion identity" />
+  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/settings.jpg" width="24%" alt="Appearance" />
+</p>
+
+<p align="center">
+  <em>Setup in four steps — name, API key, personality, appearance. Done.</em>
+</p>
+
 > **A note on what Haven is:** Haven is a **chat interface with identity persistence** — not a full memory system. It gives your companion a consistent personality across conversations, but it doesn't have advanced features like memory salience, emotional state tracking, or automatic context recall. Think of it as a solid foundation. You bring your companion's character, Haven keeps it loaded, and over time you can build more sophisticated systems on top of it. Start simple. Grow from there.
 
 ---
@@ -224,6 +239,12 @@ Haven stores your companion's identity (personality, voice, backstory) and loads
 
 **Can I connect this to other tools?**
 Haven is built by the same team behind [Nexus Gateway](https://github.com/amarisaster/Nexus-Gateway). MCP tool integration is on the roadmap.
+
+---
+
+## Recent updates
+
+**v1.0.1** — Ollama native API fallback. Models that don't support the OpenAI-compatible endpoint (like `kimi-k2-thinking`) now automatically fall back to Ollama's native `/api/chat`. Both streaming formats are handled. If it works in `ollama run`, it works in Haven.
 
 ---
 
