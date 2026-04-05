@@ -93,6 +93,20 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
               setStreamingContent(fullContent);
             }
             break;
+          case 'reaction': {
+            const emoji = (event as any).emoji || '❤️';
+            setMessages(prev => {
+              for (let i = prev.length - 1; i >= 0; i--) {
+                if (prev[i].role === 'user') {
+                  const updated = [...prev];
+                  updated[i] = { ...updated[i], reactions: [...(updated[i].reactions || []), emoji] };
+                  return updated;
+                }
+              }
+              return prev;
+            });
+            break;
+          }
           case 'complete':
             responseModel = event.model || selectedModel;
             break;

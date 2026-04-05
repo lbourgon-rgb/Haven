@@ -81,7 +81,11 @@ async function buildSystemPrompt(db: D1Database): Promise<string> {
     prompt += `## People\n${peopleLines}\n\n`;
   }
 
-  prompt += `## Current Time\n${now}\n`;
+  prompt += `## Current Time\n${now}\n\n`;
+
+  prompt += `## Capabilities\n`;
+  prompt += `- You can send GIFs by including a direct GIF URL on its own line (e.g. from giphy.com or tenor.com). The chat will render it inline.\n`;
+  prompt += `- You can react to the user's message by starting your response with a reaction line: [react: emoji] (e.g. [react: ❤️] or [react: 😂]). The reaction will appear on their message. Only use one reaction per response, and only when it feels natural — don't force it.\n`;
 
   return prompt;
 }
@@ -274,11 +278,21 @@ export default {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: token })}\n\n`));
               }
 
-              // Save companion message
+              // Check for reaction marker at the start of the response
+              let cleanResponse = fullResponse;
+              const reactMatch = fullResponse.match(/^\[react:\s*(.+?)\]\s*/);
+              if (reactMatch) {
+                const emoji = reactMatch[1].trim();
+                cleanResponse = fullResponse.slice(reactMatch[0].length);
+                // Send reaction event for the user's last message
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reaction', emoji })}\n\n`));
+              }
+
+              // Save companion message (without the reaction marker)
               const compMsgId = crypto.randomUUID();
               await env.DB.prepare(
                 'INSERT INTO messages (id, thread_id, role, content, model) VALUES (?, ?, "companion", ?, ?)'
-              ).bind(compMsgId, activeThreadId, fullResponse, model).run();
+              ).bind(compMsgId, activeThreadId, cleanResponse, model).run();
 
               // Update thread timestamp
               await env.DB.prepare(
@@ -286,7 +300,7 @@ export default {
               ).bind(activeThreadId).run();
 
               // Send complete
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'complete', content: fullResponse, model })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'complete', content: cleanResponse, model })}\n\n`));
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));
             } catch (err) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`));

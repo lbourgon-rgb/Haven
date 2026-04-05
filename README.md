@@ -239,7 +239,8 @@ Haven is built by the same team behind [Nexus Gateway](https://github.com/amaris
 - **Connected providers status** — Settings shows green badges for each provider with a saved API key.
 - **Multi-key support** — adding a new provider key no longer wipes previously saved ones. Use OpenRouter AND Ollama AND HuggingFace simultaneously.
 - **Ollama native API fallback** — models that don't support the OpenAI-compatible endpoint (like `kimi-k2-thinking`) now automatically fall back to Ollama's native `/api/chat`.
-- **CI deploys via GitHub secrets** — no config files with real IDs in the repo.
+- **Companion GIFs** — your companion can now send GIFs by including a direct URL in their response. Rendered inline in the chat.
+- **Companion reactions** — your companion can react to your messages with emoji. Reactions appear on your message bubble, just like yours do on theirs.
 
 ---
 
