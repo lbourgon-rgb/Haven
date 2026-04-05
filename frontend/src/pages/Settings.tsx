@@ -93,10 +93,8 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
     setApiMsg('');
     try {
       // Auto-detect provider from key format
-      const settings: Record<string, string> = {
-        openrouter_key: '', ollama_key: '', ollama_url: '',
-        provider: '', custom_base_url: '', custom_key: '',
-      };
+      // Only set fields for the detected provider — don't blank others
+      const settings: Record<string, string> = {};
       const key = apiKey.trim();
       if (key.startsWith('http')) {
         settings.ollama_url = key;

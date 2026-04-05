@@ -38,10 +38,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     setError('');
     try {
       await updateCompanion({ name: name.trim() });
-      const settings: Record<string, string> = {
-        openrouter_key: '', ollama_key: '', ollama_url: '',
-        provider: '', custom_base_url: '', custom_key: '',
-      };
+      const settings: Record<string, string> = {};
       const key = apiKey.trim();
       if (key.startsWith('hf_')) {
         settings.custom_key = key;
