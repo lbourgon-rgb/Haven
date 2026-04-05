@@ -7,9 +7,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.0.1-D4A84B?style=flat-square" alt="Release" />
+  <img src="https://img.shields.io/badge/release-v1.1-D4A84B?style=flat-square" alt="Release" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-4CC552?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/providers-7+-6C8EBF?style=flat-square" alt="Providers" />
+  <img src="https://img.shields.io/badge/providers-8+-6C8EBF?style=flat-square" alt="Providers" />
   <img src="https://img.shields.io/badge/built%20with-Cloudflare-F6821F?style=flat-square&logo=cloudflare&logoColor=white" alt="Cloudflare" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -41,36 +41,20 @@ It runs on Cloudflare's free tier (yes, actually free), connects to whatever AI 
 ## See it in action
 
 <p align="center">
+  <a href="https://github.com/amarisaster/Haven/blob/main/screenshots/tour.mp4?raw=true">
+    <img src="https://img.shields.io/badge/Watch%20Tour-mp4-D4A84B?style=for-the-badge" alt="Watch Tour" />
+  </a>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="24%" alt="Name your companion" />
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-key.jpg" width="24%" alt="Paste any API key" />
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-identity.jpg" width="24%" alt="Companion identity" />
   <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/settings.jpg" width="24%" alt="Appearance" />
 </p>
-
-<p align="center">
-  <em>Setup in four steps — name, API key, personality, appearance. Done.</em>
-</p>
+<p align="center"><em>Setup in four steps — name, API key, personality, appearance. Done.</em></p>
 
 > **A note on what Haven is:** Haven is a **chat interface with identity persistence** — not a full memory system. It gives your companion a consistent personality across conversations, but it doesn't have advanced features like memory salience, emotional state tracking, or automatic context recall. Think of it as a solid foundation. You bring your companion's character, Haven keeps it loaded, and over time you can build more sophisticated systems on top of it. Start simple. Grow from there.
-
----
-
-## See it in action
-
-<p align="center">
-  <a href="https://github.com/amarisaster/Haven/blob/main/screenshots/tour.mp4?raw=true">
-    <img src="https://img.shields.io/badge/Watch%20Tour-mp4-D4A84B?style=for-the-badge" alt="Watch Tour" />
-  </a>
-</p>
-<p align="center"><em>Quick tour of Haven's setup flow. (The URL shown is a test instance that no longer exists.)</em></p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-name.jpg" width="200" />
-  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-key.jpg" width="200" />
-  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/setup-identity.jpg" width="200" />
-  <img src="https://raw.githubusercontent.com/amarisaster/Haven/main/screenshots/settings.jpg" width="200" />
-</p>
-<p align="center"><em>Setup wizard: name your companion, paste any API key, define their personality, describe their appearance.</em></p>
 
 ---
 
@@ -175,6 +159,7 @@ Haven works with most AI providers. Pick one:
 |----------|-----------|-----------|
 | [OpenRouter](https://openrouter.ai/keys) | Yes — free models available | Recommended for beginners |
 | [Ollama Cloud](https://ollama.com/account/api-keys) | $20/month flat rate | Great model selection |
+| [Hugging Face](https://huggingface.co/settings/tokens) | Yes — free inference included | Open-source models |
 | [Groq](https://console.groq.com/keys) | Yes — generous free tier | Very fast inference |
 | [OpenAI](https://platform.openai.com/api-keys) | Pay as you go | GPT-4o, GPT-5 |
 | [Anthropic](https://console.anthropic.com/) | Pay as you go | Claude models |
@@ -244,7 +229,17 @@ Haven is built by the same team behind [Nexus Gateway](https://github.com/amaris
 
 ## Recent updates
 
-**v1.0.1** — Ollama native API fallback. Models that don't support the OpenAI-compatible endpoint (like `kimi-k2-thinking`) now automatically fall back to Ollama's native `/api/chat`. Both streaming formats are handled. If it works in `ollama run`, it works in Haven.
+**v1.1** — Multi-provider support & model selector upgrade
+
+- **Hugging Face support** — paste an `hf_` token and Haven auto-detects it. Free inference API included with every HF account.
+- **Dynamic model list** — models are now fetched live from OpenRouter, Ollama, HuggingFace, Groq, OpenAI, and any connected provider. No more hardcoded lists — when providers add new models, Haven sees them automatically.
+- **Model favorites** — star the models you use most. Starred models pin to the top of the selector.
+- **Model filter tabs** — filter by All, Free, Cloud, or Paid. Filter persists across sessions.
+- **Model info tooltip** — hover over any model to see its description and context length.
+- **Connected providers status** — Settings shows green badges for each provider with a saved API key.
+- **Multi-key support** — adding a new provider key no longer wipes previously saved ones. Use OpenRouter AND Ollama AND HuggingFace simultaneously.
+- **Ollama native API fallback** — models that don't support the OpenAI-compatible endpoint (like `kimi-k2-thinking`) now automatically fall back to Ollama's native `/api/chat`.
+- **CI deploys via GitHub secrets** — no config files with real IDs in the repo.
 
 ---
 
