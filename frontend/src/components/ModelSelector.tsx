@@ -27,6 +27,7 @@ function tierBadge(tier: string) {
 export default function ModelSelector({ selectedModel, selectedProvider, onModelChange }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [open, setOpen] = useState(false);
+  const [hoveredModel, setHoveredModel] = useState<ModelInfo | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,21 +88,51 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
                 color: 'var(--haven-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em',
               }}>{provider}</div>
               {providerModels.map((m) => (
-                <button
-                  key={`${m.provider}-${m.id}`}
-                  onClick={() => { onModelChange(m.id, m.provider); setOpen(false); }}
-                  style={{
-                    display: 'flex', alignItems: 'center', width: '100%',
-                    padding: '6px 12px', background: (m.id === selectedModel && m.provider === selectedProvider) ? 'var(--haven-card)' : 'transparent',
-                    border: 'none', color: 'var(--haven-text)', fontSize: '12px',
-                    cursor: 'pointer', textAlign: 'left',
-                  }}
-                  onMouseEnter={(e) => { if (m.id !== selectedModel) e.currentTarget.style.background = 'var(--haven-card)'; }}
-                  onMouseLeave={(e) => { if (m.id !== selectedModel || m.provider !== selectedProvider) e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
-                  {tierBadge(m.tier)}
-                </button>
+                <div key={`${m.provider}-${m.id}`} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => { onModelChange(m.id, m.provider); setOpen(false); setHoveredModel(null); }}
+                    onMouseEnter={(e) => {
+                      if (m.id !== selectedModel) e.currentTarget.style.background = 'var(--haven-card)';
+                      if (m.description || m.context_length) setHoveredModel(m);
+                    }}
+                    onMouseLeave={(e) => {
+                      if (m.id !== selectedModel || m.provider !== selectedProvider) e.currentTarget.style.background = 'transparent';
+                      setHoveredModel(null);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', width: '100%',
+                      padding: '6px 12px', background: (m.id === selectedModel && m.provider === selectedProvider) ? 'var(--haven-card)' : 'transparent',
+                      border: 'none', color: 'var(--haven-text)', fontSize: '12px',
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                    {tierBadge(m.tier)}
+                  </button>
+                  {hoveredModel?.id === m.id && hoveredModel?.provider === m.provider && (
+                    <div style={{
+                      position: 'absolute', right: '100%', top: 0, marginRight: '8px',
+                      background: 'var(--haven-bg)', border: '1px solid var(--haven-border)',
+                      borderRadius: '8px', padding: '10px 12px', width: '220px',
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 110,
+                      pointerEvents: 'none',
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '4px' }}>{m.name}</div>
+                      {m.context_length && (
+                        <div style={{ fontSize: '10px', color: 'var(--haven-accent)', marginBottom: '4px' }}>
+                          {m.context_length >= 1000000
+                            ? `${(m.context_length / 1000000).toFixed(1)}M context`
+                            : `${Math.round(m.context_length / 1000)}K context`}
+                        </div>
+                      )}
+                      {m.description && (
+                        <div style={{ fontSize: '10px', color: 'var(--haven-text-muted)', lineHeight: '1.4', maxHeight: '80px', overflow: 'hidden' }}>
+                          {m.description.length > 200 ? m.description.slice(0, 200) + '...' : m.description}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           ))}

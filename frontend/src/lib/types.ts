@@ -44,4 +44,6 @@ export interface ModelInfo {
   name: string;
   provider: string;
   tier: string;
+  description?: string;
+  context_length?: number;
 }

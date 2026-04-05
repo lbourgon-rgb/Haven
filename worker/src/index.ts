@@ -411,7 +411,7 @@ export default {
 
       // ---- Models ----
       if (path === '/api/models' && request.method === 'GET') {
-        const models: Array<{ id: string; name: string; provider: string; tier: string }> = [];
+        const models: Array<{ id: string; name: string; provider: string; tier: string; description?: string; context_length?: number }> = [];
         const hasOpenRouter = env.OPENROUTER_API_KEY || await getSettingValue(env.DB, 'openrouter_key');
 
         // Fetch live models from OpenRouter
@@ -420,13 +420,14 @@ export default {
           const data = await res.json() as any;
           for (const m of (data.data || [])) {
             const isFree = m.id?.endsWith(':free') || (Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0);
-            // Show free models always, paid only if user has a key
             if (isFree || hasOpenRouter) {
               models.push({
                 id: m.id,
                 name: m.name || m.id,
                 provider: 'openrouter',
                 tier: isFree ? 'free' : 'paid',
+                description: m.description || undefined,
+                context_length: m.context_length || undefined,
               });
             }
           }
