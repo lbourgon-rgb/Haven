@@ -110,8 +110,11 @@ async function* streamInference(
   const customBaseUrl = await getSettingValue(env.DB, 'custom_base_url');
   const detectedProvider = await getSettingValue(env.DB, 'provider');
 
+  let useNativeOllama = false;
+  const baseOllamaUrl = ollamaUrl || 'https://api.ollama.com';
+
   if (provider === 'ollama') {
-    url = `${ollamaUrl || 'https://api.ollama.com'}/v1/chat/completions`;
+    url = `${baseOllamaUrl}/v1/chat/completions`;
     if (ollamaKey) headers['Authorization'] = `Bearer ${ollamaKey}`;
   } else if (customBaseUrl && customKey && ['openai', 'anthropic', 'groq', 'xai'].includes(detectedProvider || '')) {
     url = `${customBaseUrl}/chat/completions`;
@@ -123,7 +126,7 @@ async function* streamInference(
     headers['X-Title'] = 'Haven';
   }
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -133,6 +136,19 @@ async function* streamInference(
       temperature: 0.8,
     }),
   });
+
+  // Ollama fallback: if OpenAI-compatible endpoint fails, try native /api/chat
+  if (!response.ok && provider === 'ollama') {
+    const nativeUrl = `${baseOllamaUrl}/api/chat`;
+    response = await fetch(nativeUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, messages, stream: true }),
+    });
+    if (response.ok) {
+      useNativeOllama = true;
+    }
+  }
 
   if (!response.ok || !response.body) {
     throw new Error(`Inference failed: ${response.status}`);
@@ -151,14 +167,28 @@ async function* streamInference(
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') return;
-      try {
-        const parsed = JSON.parse(data);
-        const token = parsed.choices?.[0]?.delta?.content;
-        if (token) yield token;
-      } catch {}
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      if (useNativeOllama) {
+        // Ollama native: newline-delimited JSON objects
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed.done) return;
+          const token = parsed.message?.content;
+          if (token) yield token;
+        } catch {}
+      } else {
+        // OpenAI SSE format: data: {...}
+        if (!trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6).trim();
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          const token = parsed.choices?.[0]?.delta?.content;
+          if (token) yield token;
+        } catch {}
+      }
     }
   }
 }
