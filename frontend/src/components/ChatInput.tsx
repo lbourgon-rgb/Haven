@@ -111,6 +111,8 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type a mess
     inputRef.current?.focus();
   };
 
+  const canSend = Boolean(text.trim() || pendingImage || pendingFile || pendingGif);
+
   // Speech-to-text
   const toggleSTT = () => {
     if (listening && recognitionRef.current) {
@@ -315,13 +317,13 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type a mess
         />
 
         {/* Mic / Send button */}
-        {text.trim() ? (
+        {canSend ? (
           <button
             onClick={handleSend}
             disabled={disabled}
             style={{
               width: '36px', height: '36px', borderRadius: '50%',
-              background: 'var(--haven-accent)',
+              background: disabled ? 'var(--haven-border)' : 'var(--haven-accent)',
               border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, transition: 'all 0.2s',

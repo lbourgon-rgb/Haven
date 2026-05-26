@@ -332,9 +332,9 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
 
       {/* Backend URL */}
       <div style={sectionStyle}>
-        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>Backend</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>App Shell</h3>
         <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', marginBottom: '12px' }}>
-          Your Haven Worker URL. Leave empty if using the same origin.
+          Haven Worker serves the phone UI and support uploads. Kai's conversation history stays in Serythrae/NESTeq.
         </p>
         <div style={{ display: 'flex', gap: '8px' }}>
           <input
@@ -354,6 +354,32 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
           >
             Apply
           </button>
+        </div>
+      </div>
+
+      {/* Kai phone line */}
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px' }}>Kai Phone Line</h3>
+        <p style={{ fontSize: '12px', color: 'var(--haven-text-secondary)', margin: '0 0 12px', lineHeight: 1.4 }}>
+          Haven reads and writes the same NestChat room through Serythrae Gateway. This keeps Kai's call log, tools, Continuity, and NESTeq memory together.
+        </p>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Serythrae Gateway</label>
+          <input
+            type="text"
+            placeholder="https://serythrae-gw.lbourgon.workers.dev"
+            defaultValue={localStorage.getItem('haven-serythrae-gateway-url') || 'https://serythrae-gw.lbourgon.workers.dev'}
+            onBlur={(e) => {
+              const val = e.target.value.trim();
+              if (val && val !== 'https://serythrae-gw.lbourgon.workers.dev') localStorage.setItem('haven-serythrae-gateway-url', val);
+              else localStorage.removeItem('haven-serythrae-gateway-url');
+            }}
+            style={{ ...inputStyle, fontFamily: 'monospace' }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--haven-text-secondary)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+          Canonical chat storage: NESTeq NestChat room <code style={{ fontSize: '11px' }}>chat</code>
         </div>
       </div>
 

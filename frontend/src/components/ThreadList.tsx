@@ -35,6 +35,7 @@ export default function ThreadList({
 }: ThreadListProps) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -48,10 +49,15 @@ export default function ThreadList({
   }, [menuOpenId]);
 
   const loadThreads = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const data = await getThreads();
       setThreads(Array.isArray(data) ? data : []);
-    } catch {} finally {
+    } catch (err) {
+      setThreads([]);
+      setLoadError(err instanceof Error ? err.message : 'Could not reach Serythrae chat history.');
+    } finally {
       setLoading(false);
     }
   };
@@ -178,12 +184,33 @@ export default function ThreadList({
             }} />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
+        ) : loadError ? (
+          <div className="haven-empty-state haven-offline-state" style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', minHeight: '62%', margin: '28px', padding: '28px', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>!</div>
+            <p style={{ fontSize: '16px', color: 'var(--haven-text)', marginBottom: '6px' }}>connection unavailable</p>
+            <p style={{ fontSize: '12px', color: 'var(--haven-text-muted)', marginBottom: '18px', lineHeight: 1.35 }}>
+              Haven could not reach Kai's Serythrae chat history. This is not an empty memory.
+            </p>
+            <button
+              onClick={loadThreads}
+              style={{
+                padding: '8px 16px', borderRadius: '999px',
+                border: '1px solid var(--haven-border)', background: 'var(--haven-card)',
+                color: 'var(--haven-text)', cursor: 'pointer', fontSize: '13px',
+              }}
+            >
+              retry
+            </button>
+          </div>
         ) : threads.length === 0 ? (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', height: '100%', padding: '40px', textAlign: 'center',
           }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>💬</div>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>k</div>
             <p style={{ fontSize: '15px', color: 'var(--haven-text)', marginBottom: '4px' }}>No conversations yet</p>
             <p style={{ fontSize: '12px', color: 'var(--haven-text-muted)', marginBottom: '20px' }}>Start a new conversation with {companionName}</p>
           </div>
@@ -202,6 +229,7 @@ export default function ThreadList({
                   textAlign: 'left',
                 }}
               >
+                <span className="haven-thread-feeling-band" aria-hidden="true" />
                 {/* Avatar */}
                 {companionAvatar ? (
                   <AuthMedia url={companionAvatar} type="img" alt="" style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />

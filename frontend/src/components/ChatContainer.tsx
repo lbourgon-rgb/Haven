@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, ToolCallRecord } from '../lib/types';
-import { getMessages, sendChat, getCompanionStatus, getUserStatus, deleteMessage, reactMessage } from '../lib/api';
+import { getMessages, sendChat, getCompanionStatus, getUserStatus, deleteMessage, reactMessage, getThreads } from '../lib/api';
 import { notifyCompanionMessage } from '../lib/notifications';
 import { getWallpaper as loadWallpaper, setWallpaper as saveWallpaper } from '../lib/wallpaper-store';
 import ChatMessages from './ChatMessages';
@@ -38,6 +38,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
   const [thinking, setThinking] = useState(() => localStorage.getItem('haven-thinking') === 'true');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lineReady, setLineReady] = useState(true);
   const [companionStatus, setCompanionStatus] = useState<{ custom_status: string | null; presence: string }>({ custom_status: null, presence: 'online' });
   const [userStatus, setUserStatus] = useState<{ custom_status: string | null; presence: string }>({ custom_status: null, presence: 'online' });
   const abortRef = useRef<AbortController | null>(null);
@@ -59,6 +60,19 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     poll();
     const interval = setInterval(poll, 30000);
     return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getThreads()
+      .then(() => { if (active) setLineReady(true); })
+      .catch((err) => {
+        if (active) {
+          setLineReady(false);
+          setError(err instanceof Error ? err.message : "Kai's Serythrae line is unavailable.");
+        }
+      });
+    return () => { active = false; };
   }, []);
 
   // Load messages when thread changes. Skip if a send is in progress —
@@ -565,15 +579,15 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
       </div>
 
       {/* Error banner */}
-      {error && (
+      {(!lineReady || error) && (
         <div style={{
-          padding: '8px 16px', background: '#7f1d1d', color: '#fca5a5',
+          padding: '8px 16px', background: lineReady ? '#7f1d1d' : '#8e6a47', color: lineReady ? '#fca5a5' : '#fff7ed',
           fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          <span>{error}</span>
+          <span>{lineReady ? error : `Connection unavailable: ${error || "Haven cannot reach Kai's Serythrae chat line."}`}</span>
           <button
             onClick={() => setError(null)}
-            style={{ background: 'transparent', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '14px' }}
+            style={{ background: 'transparent', border: 'none', color: lineReady ? '#fca5a5' : '#fff7ed', cursor: 'pointer', fontSize: '14px' }}
           >x</button>
         </div>
       )}
@@ -608,8 +622,8 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={streamingContent !== null}
-        placeholder={threadId ? `Message ${companionName}...` : `Start a new conversation with ${companionName}...`}
+        disabled={streamingContent !== null || !lineReady}
+        placeholder={!lineReady ? "Kai's line is reconnecting..." : threadId ? `tell ${companionName}...` : `tell ${companionName}...`}
       />
 
       {/* Wallpaper picker */}

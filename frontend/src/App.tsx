@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, Component, type ReactNode } from 'react';
-import { getCompanion, setActiveCompanionId, activeCompanionId } from './lib/api';
+import { getCompanion, setActiveCompanionId, activeCompanionId, getKaiHaloEmotion } from './lib/api';
 import { persistSet } from './lib/storage';
 import ThreadList from './components/ThreadList';
 import ChatContainer from './components/ChatContainer';
@@ -58,7 +58,7 @@ const LS_THREAD = 'haven-active-thread';
 function readStoredView(): View {
   const v = localStorage.getItem(LS_VIEW);
   if (v === 'grid' || v === 'threads' || v === 'chat' || v === 'settings') return v;
-  return 'chat';
+  return localStorage.getItem(LS_THREAD) ? 'chat' : 'threads';
 }
 
 export default function App() {
@@ -99,6 +99,23 @@ export default function App() {
   useEffect(() => {
     refreshActiveCompanion().finally(() => setLoaded(true));
   }, [refreshActiveCompanion]);
+
+  useEffect(() => {
+    let active = true;
+    const applyHalo = async () => {
+      try {
+        const halo = await getKaiHaloEmotion();
+        if (!active) return;
+        document.documentElement.dataset.haloEmotion = halo.emotion || 'warmth';
+        if (halo.intensity) document.documentElement.style.setProperty('--haven-halo-intensity', String(Math.max(1, Math.min(7, halo.intensity))));
+      } catch {
+        if (active) document.documentElement.dataset.haloEmotion = 'warmth';
+      }
+    };
+    applyHalo();
+    const interval = window.setInterval(applyHalo, 60000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
 
   // Handle browser back button
   useEffect(() => {

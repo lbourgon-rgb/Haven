@@ -261,10 +261,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         {step === 1 && (
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px', textAlign: 'center' }}>
-              Connect Haven's chat backend
+              Connect Haven's app shell
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              This frontend needs the Haven Worker before Kai can answer, save messages, or use tools. Paste the deployed Worker URL here; it usually looks like{' '}
+              Haven Worker serves this phone UI. Kai's actual replies, chat history, tools, and memory stay on Serythrae Gateway and NESTeq. Paste the deployed Worker URL here; it usually looks like{' '}
               <code style={{ color: 'var(--haven-text)' }}>https://your-haven.workers.dev</code>.
             </p>
             <input
@@ -310,7 +310,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               }}
             >Preview UI without backend</button>
             <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', marginTop: '16px', textAlign: 'center' }}>
-              Preview mode is visual only. Chat, image generation, uploads, history, and sync will come alive after the backend is connected.
+              Preview mode is visual only. Real chat stays disabled unless the Serythrae/NESTeq line is reachable.
             </p>
           </div>
         )}

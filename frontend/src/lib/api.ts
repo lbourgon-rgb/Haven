@@ -119,12 +119,15 @@ async function del(path: string): Promise<void> {
 }
 
 // Threads
-export const getThreads = () => get<Thread[]>('/api/threads');
-export const createThread = (title?: string) => post<{ id: string }>('/api/threads', { title });
-export const deleteThread = (id: string) => del(`/api/threads/${id}`);
-export const renameThread = (id: string, title: string) => put<{ success: boolean }>(`/api/threads/${id}`, { title });
-export const deleteMessage = (id: string) => del(`/api/messages/${id}`);
+export const getThreads = () => usingSerythraeBridge() ? getSerythraeThreads() : get<Thread[]>('/api/threads');
+export const createThread = (title?: string) => usingSerythraeBridge() ? createSerythraeThread() : post<{ id: string }>('/api/threads', { title });
+export const deleteThread = (id: string) => usingSerythraeBridge() ? deleteSerythraeThread(id) : del(`/api/threads/${id}`);
+export const renameThread = (id: string, title: string) => usingSerythraeBridge() ? renameSerythraeThread(id, title) : put<{ success: boolean }>(`/api/threads/${id}`, { title });
+export const deleteMessage = (id: string) => usingSerythraeBridge() ? Promise.resolve() : del(`/api/messages/${id}`);
 export async function reactMessage(messageId: string, emoji: string): Promise<{ reactions: string[] }> {
+  if (usingSerythraeBridge()) {
+    return { reactions: [emoji] };
+  }
   const path = `/api/messages/${messageId}/react`;
   const res = await fetch(`${apiBase()}${path}`, {
     method: 'PATCH',
@@ -135,7 +138,7 @@ export async function reactMessage(messageId: string, emoji: string): Promise<{ 
 }
 
 // Messages
-export const getMessages = (threadId: string) => get<Message[]>(`/api/messages/${threadId}`);
+export const getMessages = (threadId: string) => usingSerythraeBridge() ? getSerythraeMessages(threadId) : get<Message[]>(`/api/messages/${threadId}`);
 
 // Companion (singular — operates on the active companion via X-Companion-Id)
 export const getCompanion = () => get<Companion>('/api/companion');
@@ -240,8 +243,102 @@ function serythraeModelsUrl(): string {
   );
 }
 
-function usingSerythraeBridge(): boolean {
-  return localStorage.getItem('haven-chat-backend') === 'serythrae';
+export function usingSerythraeBridge(): boolean {
+  return localStorage.getItem('haven-chat-backend') !== 'haven-local';
+}
+
+type SerythraeHistoryMessage = {
+  role: string;
+  content: string;
+  created_at?: string | null;
+};
+
+type SerythraeSession = {
+  id: string;
+  room?: string;
+  summary?: string | null;
+  message_count?: number;
+  started_at?: string | null;
+  updated_at?: string | null;
+  messages?: SerythraeHistoryMessage[];
+};
+
+type SerythraeHistoryResponse = {
+  sessions?: SerythraeSession[];
+  deleted_session_ids?: string[];
+};
+
+let serythraeSessionCache = new Map<string, SerythraeSession>();
+
+function normalizeSerythraeDate(value?: string | null): string {
+  if (!value) return new Date().toISOString();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)) return `${value.replace(' ', 'T')}Z`;
+  return value;
+}
+
+function messagePreview(messages: SerythraeHistoryMessage[] = []): string {
+  const last = [...messages].reverse().find((m) => String(m.content || '').trim());
+  if (!last) return 'Kai private chat';
+  const text = String(last.content || '').replace(/\s+/g, ' ').trim();
+  return text.length > 58 ? `${text.slice(0, 55)}...` : text;
+}
+
+function sessionTitle(session: SerythraeSession): string {
+  const summary = String(session.summary || '').replace(/\s+/g, ' ').trim();
+  if (summary) return summary.length > 64 ? `${summary.slice(0, 61)}...` : summary;
+  return messagePreview(session.messages);
+}
+
+function toHavenMessage(sessionId: string, message: SerythraeHistoryMessage, index: number): Message {
+  return {
+    id: `${sessionId}-${index}`,
+    thread_id: sessionId,
+    role: message.role === 'assistant' ? 'companion' : message.role === 'system' ? 'system' : 'user',
+    content: String(message.content || ''),
+    created_at: normalizeSerythraeDate(message.created_at),
+  };
+}
+
+async function fetchSerythraeHistory(limit = 100): Promise<SerythraeHistoryResponse> {
+  const res = await fetch(`${serythraeGatewayBase()}/chat/history`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room: 'chat', limit }),
+  });
+  return parseJson<SerythraeHistoryResponse>(res, 'serythrae:/chat/history');
+}
+
+async function getSerythraeThreads(): Promise<Thread[]> {
+  const data = await fetchSerythraeHistory();
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  serythraeSessionCache = new Map(sessions.map((session) => [String(session.id), session]));
+  return sessions.map((session) => ({
+    id: String(session.id),
+    title: sessionTitle(session),
+    last_message_at: normalizeSerythraeDate(session.updated_at || session.started_at),
+    created_at: normalizeSerythraeDate(session.started_at || session.updated_at),
+  }));
+}
+
+async function getSerythraeMessages(threadId: string): Promise<Message[]> {
+  if (!serythraeSessionCache.has(threadId)) {
+    await getSerythraeThreads();
+  }
+  const session = serythraeSessionCache.get(threadId);
+  return (session?.messages || []).map((message, index) => toHavenMessage(threadId, message, index));
+}
+
+function createSerythraeThread(): Promise<{ id: string }> {
+  return Promise.resolve({ id: `haven-${Date.now()}` });
+}
+
+async function deleteSerythraeThread(id: string): Promise<void> {
+  await callSerythraeTool('nestchat_delete_session', { session_id: id, room: 'chat' });
+  serythraeSessionCache.delete(id);
+}
+
+async function renameSerythraeThread(_id: string, _title: string): Promise<{ success: boolean }> {
+  return { success: false };
 }
 
 async function callSerythraeTool<T = unknown>(tool: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -373,6 +470,29 @@ export async function getKaiIdentityFromSerythrae(): Promise<Identity[]> {
     ...parseKaiSoulIdentity(soul),
     ...parseKaiOrientationIdentity(typeof orientation === 'string' ? orientation : ''),
   ];
+}
+
+export async function getKaiHaloEmotion(): Promise<{ emotion: string; intensity?: number; color?: string }> {
+  const text = await callSerythraeTool<string>('nesteq_ground').catch(() => '');
+  const body = typeof text === 'string' ? text : JSON.stringify(text);
+  const emotionPatterns = [
+    /\bemotion:\s*([a-z-]+)/i,
+    /\[([a-z-]+)\]/i,
+    /\b(warmth|tender|playful|joyful|calm|focused|curious|wistful|concern|neutral|offline)\b/i,
+  ];
+  let emotion = 'warmth';
+  for (const pattern of emotionPatterns) {
+    const match = body.match(pattern);
+    if (match?.[1]) {
+      emotion = match[1].toLowerCase();
+      break;
+    }
+  }
+  const intensityMatch = body.match(/\bintensity[:\s]+([0-9]+)/i);
+  return {
+    emotion,
+    intensity: intensityMatch ? Number(intensityMatch[1]) : undefined,
+  };
 }
 
 // Memories
@@ -554,7 +674,8 @@ async function* sendSerythraeChat(
         messages: historyMessages,
         session_messages: historyMessages,
         session_id: sessionId,
-        room: 'haven',
+        room: 'chat',
+        surface: 'haven',
         ...(model ? { model } : {}),
         ...(thinking ? { thinking: true } : {}),
         ...(image ? { image } : {}),
@@ -627,7 +748,7 @@ async function* sendSerythraeChat(
       const chunk = parsed.content || parsed.text || parsed.choices?.[0]?.delta?.content || '';
       if (chunk && (currentEvent === 'message' || currentEvent === 'content' || !currentEvent)) {
         fullContent += chunk;
-        yield { type: 'chunk', content: fullContent };
+        yield { type: 'chunk', content: chunk };
         continue;
       }
 
