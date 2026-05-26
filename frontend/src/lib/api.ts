@@ -541,6 +541,34 @@ export const getModels = async () => {
 export const getSettings = () => get<Record<string, string>>('/api/settings');
 export const updateSettings = (data: Record<string, string>) => put('/api/settings', data);
 
+export async function syncSharedSettingsFromServer(): Promise<Record<string, string>> {
+  const settings = await getSettings();
+  const mappings: Array<[string, string]> = [
+    ['user_name', 'haven-user-name'],
+    ['user_avatar', 'haven-user-avatar'],
+    ['tts_mode', 'haven-tts-mode'],
+    ['tts_browser_voice', 'haven-tts-voice'],
+    ['elevenlabs_key', 'haven-eleven-key'],
+    ['elevenlabs_voice_id', 'haven-eleven-voice-id'],
+  ];
+  for (const [serverKey, localKey] of mappings) {
+    const value = settings[serverKey];
+    if (value && value !== '***set***') {
+      localStorage.setItem(localKey, value);
+    }
+  }
+  const seed: Record<string, string> = {};
+  for (const [serverKey, localKey] of mappings) {
+    if (settings[serverKey]) continue;
+    const localValue = localStorage.getItem(localKey);
+    if (localValue) seed[serverKey] = localValue;
+  }
+  if (Object.keys(seed).length > 0) {
+    updateSettings(seed).catch(() => {});
+  }
+  return settings;
+}
+
 // Status
 export const getCompanionStatus = () => get<{ custom_status: string | null; presence: string }>('/api/status');
 export const setCompanionStatus = (data: { custom_status?: string; presence?: string }) => put('/api/status', data);

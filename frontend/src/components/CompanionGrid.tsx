@@ -44,7 +44,7 @@ export default function CompanionGrid({ onOpenCompanion, onAddCompanion, onOpenS
   const nearCap = companions.length >= 10;
 
   return (
-    <div style={{
+    <div className="haven-companion-grid" style={{
       height: '100%', display: 'flex', flexDirection: 'column',
       background: 'var(--haven-bg)', color: 'var(--haven-text)',
       padding: '20px', boxSizing: 'border-box', overflow: 'auto',

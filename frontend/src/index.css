@@ -77,6 +77,29 @@ button {
   color: var(--haven-text);
 }
 
+.haven-companion-grid,
+.haven-settings-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.haven-companion-grid::before,
+.haven-settings-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(251, 250, 246, 0.24), rgba(251, 250, 246, 0.36)), url('/images/bg-empty.png');
+  background-size: cover;
+  background-position: center;
+}
+
+.haven-settings-page > div,
+.haven-companion-grid > div {
+  position: relative;
+}
+
 .haven-chat,
 .haven-thread-list {
   isolation: isolate;

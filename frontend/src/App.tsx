@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, Component, type ReactNode } from 'react';
-import { getCompanion, setActiveCompanionId, activeCompanionId, getKaiHaloEmotion } from './lib/api';
+import { getCompanion, setActiveCompanionId, activeCompanionId, getKaiHaloEmotion, syncSharedSettingsFromServer } from './lib/api';
 import { persistSet } from './lib/storage';
 import ThreadList from './components/ThreadList';
 import ChatContainer from './components/ChatContainer';
@@ -97,7 +97,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refreshActiveCompanion().finally(() => setLoaded(true));
+    syncSharedSettingsFromServer()
+      .catch(() => {})
+      .finally(() => refreshActiveCompanion().finally(() => setLoaded(true)));
   }, [refreshActiveCompanion]);
 
   useEffect(() => {

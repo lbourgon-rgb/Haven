@@ -1868,6 +1868,8 @@ export default {
         'custom_key', 'custom_base_url',
         'companion_status', 'companion_presence',
         'user_status', 'user_presence',
+        'user_name', 'user_avatar',
+        'tts_mode', 'tts_browser_voice', 'elevenlabs_key', 'elevenlabs_voice_id',
         'mcp_tool_limit',
         'giphy_key',
         'openrouter_enabled', 'ollama_enabled', 'custom_enabled',
@@ -1877,7 +1879,7 @@ export default {
         const settings = await env.DB.prepare('SELECT * FROM settings').all();
         const obj: Record<string, string> = {};
         for (const row of (settings.results || []) as Array<{ key: string; value: string }>) {
-          if (SETTINGS_SECRET_PATTERN.test(row.key) && row.value) {
+          if (SETTINGS_SECRET_PATTERN.test(row.key) && row.key !== 'elevenlabs_key' && row.value) {
             obj[row.key] = SETTINGS_SECRET_PLACEHOLDER;
           } else {
             obj[row.key] = row.value;

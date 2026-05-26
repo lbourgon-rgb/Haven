@@ -83,6 +83,12 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
     setVoiceSaving(true);
     try {
       saveTTSSettings({ mode: ttsMode, browserVoice, elevenLabsKey: elevenKey, elevenLabsVoiceId: elevenVoiceId });
+      await updateSettings({
+        tts_mode: ttsMode,
+        tts_browser_voice: browserVoice,
+        elevenlabs_key: elevenKey,
+        elevenlabs_voice_id: elevenVoiceId,
+      });
       setVoiceMsg('Saved');
     } catch {
       setVoiceMsg('Error');
@@ -137,6 +143,15 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
       setUserStatusText(s.custom_status || '');
       setUserPresence(s.presence || 'online');
     }).catch((e) => console.warn('[settings] getUserStatus failed', e));
+
+    getSettings().then((s) => {
+      if (s.user_name) localStorage.setItem('haven-user-name', s.user_name);
+      if (s.user_avatar) localStorage.setItem('haven-user-avatar', s.user_avatar);
+      if (s.tts_mode === 'browser' || s.tts_mode === 'elevenlabs') setTtsMode(s.tts_mode);
+      if (s.tts_browser_voice) setBrowserVoice(s.tts_browser_voice);
+      if (s.elevenlabs_key && s.elevenlabs_key !== '***set***') setElevenKey(s.elevenlabs_key);
+      if (s.elevenlabs_voice_id) setElevenVoiceId(s.elevenlabs_voice_id);
+    }).catch((e) => console.warn('[settings] shared settings load failed', e));
 
     getStorageUsage().then(setStorage).catch(() => {});
   }, []);
@@ -313,7 +328,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
   );
 
   return (
-    <div className="hide-scrollbar" style={{
+    <div className="hide-scrollbar haven-settings-page" style={{
       height: '100%', overflowY: 'scroll', padding: '20px',
       maxWidth: '600px', margin: '0 auto',
       WebkitOverflowScrolling: 'touch' as any, touchAction: 'pan-y',
@@ -399,6 +414,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
               const val = e.target.value.trim();
               if (val) localStorage.setItem('haven-user-name', val);
               else localStorage.removeItem('haven-user-name');
+              updateSettings({ user_name: val }).catch(() => {});
             }}
             style={inputStyle}
           />
@@ -421,7 +437,9 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = () => {
-                  localStorage.setItem('haven-user-avatar', reader.result as string);
+                  const avatar = reader.result as string;
+                  localStorage.setItem('haven-user-avatar', avatar);
+                  updateSettings({ user_avatar: avatar }).catch(() => {});
                   window.location.reload();
                 };
                 reader.readAsDataURL(file);
@@ -430,7 +448,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
             <span style={{ fontSize: '11px', color: 'var(--haven-text-muted)' }}>Tap to upload</span>
             {localStorage.getItem('haven-user-avatar') && (
               <button
-                onClick={() => { localStorage.removeItem('haven-user-avatar'); window.location.reload(); }}
+                onClick={() => { localStorage.removeItem('haven-user-avatar'); updateSettings({ user_avatar: '' }).finally(() => window.location.reload()); }}
                 style={{ fontSize: '11px', color: '#f87171', background: 'transparent', border: 'none', cursor: 'pointer' }}
               >Remove</button>
             )}
