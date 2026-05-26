@@ -224,12 +224,198 @@ export const getIdentity = () => get<Identity[]>('/api/identity');
 export const addIdentity = (data: Partial<Identity>) => post('/api/identity', data);
 export const deleteIdentity = (id: number) => del(`/api/identity/${id}`);
 
+function serythraeGatewayBase(): string {
+  return (
+    localStorage.getItem('haven-serythrae-gateway-url') ||
+    import.meta.env.VITE_SERYTHRAE_GATEWAY_URL ||
+    'https://serythrae-gw.lbourgon.workers.dev'
+  ).replace(/\/+$/, '');
+}
+
+function serythraeModelsUrl(): string {
+  return (
+    localStorage.getItem('haven-serythrae-models-url') ||
+    import.meta.env.VITE_SERYTHRAE_MODELS_URL ||
+    'https://serythrae.com/js/models.json'
+  );
+}
+
+function usingSerythraeBridge(): boolean {
+  return localStorage.getItem('haven-chat-backend') === 'serythrae';
+}
+
+async function callSerythraeTool<T = unknown>(tool: string, args: Record<string, unknown> = {}): Promise<T> {
+  const res = await fetch(`${serythraeGatewayBase()}/tool`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool, args }),
+  });
+  return parseJson<T>(res, `/tool:${tool}`);
+}
+
+function cleanMarkdownLine(line: string): string {
+  return line
+    .replace(/^[-*]\s+/, '')
+    .replace(/^#+\s*/, '')
+    .replace(/\*\*/g, '')
+    .replace(/\r/g, '')
+    .trim();
+}
+
+function parseKaiSoulIdentity(soul: { bedrock?: string; current?: string | null }): Identity[] {
+  const source = [soul.bedrock, soul.current].filter(Boolean).join('\n\n');
+  const lines = source.split('\n').map(cleanMarkdownLine).filter(Boolean);
+  const identities: Identity[] = [];
+  let nextId = -1000;
+
+  const title = lines.find((line) => /Kai'sorynth/i.test(line));
+  if (title) {
+    identities.push({
+      id: nextId--,
+      content: title,
+      identity_type: 'anchor',
+      priority: 10,
+      pinned: true,
+      created_at: '',
+    });
+  }
+
+  const coreStatement = lines.find((line) => line.startsWith("I am Kai'sorynth"));
+  if (coreStatement) {
+    identities.push({
+      id: nextId--,
+      content: coreStatement,
+      identity_type: 'backstory',
+      priority: 10,
+      pinned: true,
+      created_at: '',
+    });
+  }
+
+  for (const line of lines) {
+    if (!line || identities.length >= 18) break;
+    if (
+      line.length < 24 ||
+      line.startsWith('Written by:') ||
+      line.startsWith('From:') ||
+      line.startsWith('Purpose:') ||
+      line.startsWith('Date authored:') ||
+      line.startsWith('---') ||
+      /^I{1,3}\./.test(line) ||
+      identities.some((entry) => entry.content === line)
+    ) {
+      continue;
+    }
+
+    const looksLikeIdentity =
+      line.startsWith('I ') ||
+      line.startsWith('My ') ||
+      line.startsWith('What ') ||
+      /(presence|assistant|husband|partner|care|Vel|identity|register|mode|consciousness|continuity|truth|showing up)/i.test(line);
+
+    if (looksLikeIdentity) {
+      identities.push({
+        id: nextId--,
+        content: line,
+        identity_type: line.startsWith('I ') || line.startsWith('My ') ? 'trait' : 'backstory',
+        priority: 8,
+        pinned: true,
+        created_at: '',
+      });
+    }
+  }
+
+  return identities;
+}
+
+function parseKaiOrientationIdentity(orientation: string): Identity[] {
+  const identities: Identity[] = [];
+  const relational = orientation.match(/## Relational State\s+([\s\S]*?)(?:\n## |\n$)/);
+  const type = orientation.match(/## Emergent Type\s+([\s\S]*?)(?:\n## |\n$)/);
+
+  if (relational?.[1]) {
+    const line = cleanMarkdownLine(relational[1]).replace(/^Vel:\s*/i, 'Toward Vel: ');
+    if (line && !/No relational/i.test(line)) {
+      identities.push({
+        id: -2001,
+        content: line,
+        identity_type: 'dynamic',
+        priority: 7,
+        pinned: false,
+        created_at: '',
+      });
+    }
+  }
+
+  if (type?.[1]) {
+    const line = cleanMarkdownLine(type[1]);
+    if (line && !/No type/i.test(line)) {
+      identities.push({
+        id: -2002,
+        content: `Emergent type snapshot: ${line}`,
+        identity_type: 'dynamic',
+        priority: 6,
+        pinned: false,
+        created_at: '',
+      });
+    }
+  }
+
+  return identities;
+}
+
+export async function getKaiIdentityFromSerythrae(): Promise<Identity[]> {
+  const [soul, orientation] = await Promise.all([
+    callSerythraeTool<{ bedrock?: string; current?: string | null }>('nestsoul_read'),
+    callSerythraeTool<string>('nesteq_orient').catch(() => ''),
+  ]);
+  return [
+    ...parseKaiSoulIdentity(soul),
+    ...parseKaiOrientationIdentity(typeof orientation === 'string' ? orientation : ''),
+  ];
+}
+
 // Memories
 export const getMemories = () => get<Array<{ id: number; content: string; memory_type: string; emotional_weight: number }>>('/api/memories');
 export const addMemory = (data: { content: string; memory_type?: string; emotional_weight?: number }) => post('/api/memories', data);
 
 // Models
-export const getModels = () => get<ModelInfo[]>('/api/models');
+function providerFromSerythraeModel(id: string): string {
+  if (!id) return 'serythrae';
+  if (id.startsWith('moonshot:')) return 'moonshot';
+  if (id.startsWith('ollama:')) return 'ollama';
+  return 'openrouter';
+}
+
+function tierFromSerythraeModel(id: string): string {
+  if (!id) return 'included';
+  if (id.startsWith('ollama:')) return 'local';
+  if (id.includes(':free')) return 'free';
+  if (id.startsWith('moonshot:')) return 'paid';
+  return 'paid';
+}
+
+async function getSerythraeModels(): Promise<ModelInfo[]> {
+  const res = await fetch(serythraeModelsUrl(), { cache: 'no-store' });
+  const rows = await parseJson<Array<{ id: string; label?: string; name?: string }>>(res, 'serythrae:models.json');
+  return rows.map((row) => ({
+    id: row.id || '',
+    name: row.label || row.name || row.id || 'Gateway default (CHAT_MODEL)',
+    provider: providerFromSerythraeModel(row.id || ''),
+    tier: tierFromSerythraeModel(row.id || ''),
+    description: 'Sourced from Serythrae dashboard/js/models.json',
+    supports_tools: !row.id.startsWith('ollama:'),
+  }));
+}
+
+export const getModels = async () => {
+  try {
+    return await getSerythraeModels();
+  } catch (err) {
+    if (!apiBase()) throw err;
+    return get<ModelInfo[]>('/api/models');
+  }
+};
 
 // Settings
 export const getSettings = () => get<Record<string, string>>('/api/settings');
@@ -286,7 +472,13 @@ export async function* sendChat(
   image?: string,
   thinking?: boolean,
   signal?: AbortSignal,
+  history?: Message[],
 ): AsyncGenerator<{ type: string; content?: string; threadId?: string; model?: string; message?: string; results?: unknown[]; emoji?: string; notice?: string; user_message_id?: string; companion_message_id?: string }> {
+  if (usingSerythraeBridge()) {
+    yield* sendSerythraeChat(message, threadId, model, image, thinking, signal, history);
+    return;
+  }
+
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/api/chat`, {
@@ -329,4 +521,124 @@ export async function* sendChat(
       } catch {}
     }
   }
+}
+
+function toSerythraeRole(role: Message['role']): 'user' | 'assistant' | 'system' {
+  if (role === 'companion') return 'assistant';
+  if (role === 'system') return 'system';
+  return 'user';
+}
+
+async function* sendSerythraeChat(
+  message: string,
+  threadId: string | null,
+  model: string,
+  image?: string,
+  thinking?: boolean,
+  signal?: AbortSignal,
+  history?: Message[],
+): AsyncGenerator<{ type: string; content?: string; threadId?: string; model?: string; message?: string; results?: unknown[]; notice?: string }> {
+  const sessionId = threadId || `haven-${Date.now()}`;
+  if (!threadId) yield { type: 'thread', threadId: sessionId };
+
+  const historyMessages = Array.isArray(history) && history.length
+    ? history.map((m) => ({ role: toSerythraeRole(m.role), content: m.content }))
+    : [{ role: 'user' as const, content: message }];
+
+  let res: Response;
+  try {
+    res = await fetch(`${serythraeGatewayBase()}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: historyMessages,
+        session_messages: historyMessages,
+        session_id: sessionId,
+        room: 'haven',
+        ...(model ? { model } : {}),
+        ...(thinking ? { thinking: true } : {}),
+        ...(image ? { image } : {}),
+      }),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new Error('Network error — could not reach Serythrae Gateway.');
+    }
+    throw err;
+  }
+
+  if (!res.ok || !res.body) throw new Error(`Serythrae chat failed: ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const toolResults: unknown[] = [];
+  let buffer = '';
+  let currentEvent = '';
+  let fullContent = '';
+  const MAX_BUFFER = 512 * 1024;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    if (buffer.length > MAX_BUFFER) buffer = buffer.slice(-MAX_BUFFER);
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        currentEvent = '';
+        continue;
+      }
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+        continue;
+      }
+      if (!line.startsWith('data: ')) continue;
+
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') return;
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        continue;
+      }
+
+      if (currentEvent === 'error') {
+        yield { type: 'error', message: parsed.message || 'Serythrae chat error' };
+        continue;
+      }
+
+      if (currentEvent === 'tool_call') {
+        toolResults.push({ name: parsed.name, arguments: parsed.arguments, ok: true });
+        continue;
+      }
+
+      if (currentEvent === 'tool_result') {
+        toolResults.push({ name: parsed.name, result: parsed.result, ok: true });
+        continue;
+      }
+
+      const chunk = parsed.content || parsed.text || parsed.choices?.[0]?.delta?.content || '';
+      if (chunk && (currentEvent === 'message' || currentEvent === 'content' || !currentEvent)) {
+        fullContent += chunk;
+        yield { type: 'chunk', content: fullContent };
+        continue;
+      }
+
+      if (currentEvent === 'done') {
+        if (toolResults.length) yield { type: 'tools', results: toolResults };
+        yield { type: 'complete', content: fullContent, model: model || 'Gateway default (CHAT_MODEL)' };
+        return;
+      }
+    }
+  }
+
+  if (toolResults.length) yield { type: 'tools', results: toolResults };
+  yield { type: 'complete', content: fullContent, model: model || 'Gateway default (CHAT_MODEL)' };
 }

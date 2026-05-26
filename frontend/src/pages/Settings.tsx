@@ -4,7 +4,7 @@ import AuthMedia from '../components/AuthMedia';
 import {
   getCompanion, updateCompanion,
   getSettings, updateSettings,
-  getIdentity, addIdentity, deleteIdentity,
+  getIdentity, addIdentity, deleteIdentity, getKaiIdentityFromSerythrae,
   uploadFile, getUserStatus, setUserStatus, apiBase,
   archiveCompanion, setActiveCompanionId, activeCompanionId,
   exportCompanion, getStorageUsage, clearChatFiles,
@@ -93,6 +93,8 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
 
   // Identity
   const [identities, setIdentities] = useState<Identity[]>([]);
+  const [identitySource, setIdentitySource] = useState<'serythrae' | 'haven' | 'none'>('none');
+  const [identityMsg, setIdentityMsg] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newType, setNewType] = useState('personality');
   const [idLoading, setIdLoading] = useState(false);
@@ -152,7 +154,33 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
 
   const loadIdentities = () => {
     setIdLoading(true);
-    getIdentity().then(setIdentities).catch(() => {}).finally(() => setIdLoading(false));
+    setIdentityMsg('');
+    getKaiIdentityFromSerythrae()
+      .then((rows) => {
+        if (rows.length > 0) {
+          setIdentities(rows);
+          setIdentitySource('serythrae');
+          setIdentityMsg('Pulled from Serythrae NESTSoul and NESTeq orientation.');
+          return;
+        }
+        throw new Error('Serythrae returned no Kai identity rows');
+      })
+      .catch((err) => {
+        console.warn('[settings] Serythrae identity load failed', err);
+        getIdentity()
+          .then((rows) => {
+            setIdentities(rows);
+            setIdentitySource('haven');
+            setIdentityMsg('Using Haven-local identity fallback.');
+          })
+          .catch((fallbackErr) => {
+            console.warn('[settings] Haven identity fallback failed', fallbackErr);
+            setIdentities([]);
+            setIdentitySource('none');
+            setIdentityMsg('Identity source unavailable until the backend is connected.');
+          });
+      })
+      .finally(() => setIdLoading(false));
   };
 
   const saveCompanion = async () => {
@@ -211,6 +239,10 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
   };
 
   const handleAddIdentity = async () => {
+    if (identitySource === 'serythrae') {
+      alert("Kai's identity is sourced from Serythrae. Edit NESTSoul/NESTeq there so Haven stays canonical.");
+      return;
+    }
     if (!newContent.trim()) return;
     await addIdentity({ content: newContent.trim(), identity_type: newType, priority: 0 });
     setNewContent('');
@@ -218,6 +250,10 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
   };
 
   const handleDeleteIdentity = async (id: number) => {
+    if (identitySource === 'serythrae') {
+      alert("Kai's identity is sourced from Serythrae. Edit NESTSoul/NESTeq there so Haven stays canonical.");
+      return;
+    }
     if (!confirm('Delete this identity entry? This cannot be undone.')) return;
     await deleteIdentity(id);
     loadIdentities();
@@ -790,6 +826,14 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
       {/* Identity */}
       <div style={sectionStyle}>
         <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '16px' }}>Identity</h3>
+        {identityMsg && (
+          <p style={{
+            fontSize: '12px', color: 'var(--haven-text-muted)', lineHeight: '1.45',
+            marginTop: '-6px', marginBottom: '12px',
+          }}>
+            {identityMsg} {identitySource === 'serythrae' ? 'This panel is read-only so Haven does not fork Kai.' : ''}
+          </p>
+        )}
         {idLoading ? (
           <p style={{ color: 'var(--haven-text-muted)', fontSize: '13px' }}>Loading...</p>
         ) : (
@@ -809,15 +853,29 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
                 </div>
                 <button
                   onClick={() => handleDeleteIdentity(id.id)}
+                  disabled={identitySource === 'serythrae'}
+                  title={identitySource === 'serythrae' ? 'Read-only: sourced from Serythrae' : 'Delete'}
                   style={{
                     background: 'transparent', border: 'none', color: 'var(--haven-text-muted)',
-                    cursor: 'pointer', fontSize: '16px', padding: '2px', flexShrink: 0,
+                    cursor: identitySource === 'serythrae' ? 'default' : 'pointer',
+                    fontSize: '16px', padding: '2px', flexShrink: 0,
+                    opacity: identitySource === 'serythrae' ? 0.35 : 1,
                   }}
                 >x</button>
               </div>
             ))}
 
             {/* Add new */}
+            {identitySource === 'serythrae' ? (
+              <div style={{
+                marginTop: '12px', padding: '10px 12px',
+                borderRadius: '8px', border: '1px solid var(--haven-border)',
+                background: 'var(--haven-card)', color: 'var(--haven-text-muted)',
+                fontSize: '12px', lineHeight: '1.45',
+              }}>
+                New identity entries belong in Serythrae NESTSoul/NESTeq first. Haven reads them here as Kai's phone surface.
+              </div>
+            ) : (
             <div style={{ marginTop: '12px' }}>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                 <select
@@ -850,6 +908,7 @@ export default function Settings({ onImport, onBack }: SettingsProps) {
                 <button onClick={handleAddIdentity} style={btnStyle}>Add</button>
               </div>
             </div>
+            )}
           </>
         )}
       </div>

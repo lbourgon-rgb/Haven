@@ -93,9 +93,9 @@ export default function ThreadList({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="haven-thread-list haven-halo-list" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <div style={{
+      <div className="haven-thread-header" style={{
         display: 'flex', flexDirection: 'column', gap: '8px',
         padding: '16px 20px 12px', borderBottom: '1px solid var(--haven-border)',
         background: 'var(--haven-surface)',
@@ -168,7 +168,7 @@ export default function ThreadList({
       </div>
 
       {/* Thread list */}
-      <div className="hide-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
+      <div className="hide-scrollbar haven-thread-scroll" style={{ flex: 1, overflowY: 'auto' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
             <div style={{
@@ -192,6 +192,7 @@ export default function ThreadList({
             const isEditing = editingId === thread.id;
             return (
               <div
+                className="haven-thread-row"
                 key={thread.id}
                 onClick={() => { if (!isEditing) onSelectThread(thread.id); }}
                 style={{

@@ -24,8 +24,8 @@ const LS_PROVIDER = 'haven-provider';
 export default function ChatContainer({ threadId, onThreadCreated, companionName, companionAvatar, onBack }: ChatContainerProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem(LS_MODEL) || 'openai/gpt-4o-mini');
-  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem(LS_PROVIDER) || 'openrouter');
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem(LS_MODEL) || '');
+  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem(LS_PROVIDER) || 'serythrae');
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem(LS_FONT);
     return saved ? parseInt(saved, 10) : 15;
@@ -128,7 +128,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     let realCompanionId: string | undefined;
 
     try {
-      for await (const event of sendChat(persistedContent, threadId, selectedModel, selectedProvider, image, thinking, controller.signal)) {
+      for await (const event of sendChat(persistedContent, threadId, selectedModel, selectedProvider, image, thinking, controller.signal, [...messages, userMsg])) {
         switch (event.type) {
           case 'thread':
             if (event.threadId && !currentThreadId) {
@@ -255,7 +255,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     let notice: string | undefined;
 
     try {
-      for await (const event of sendChat(newContent, threadId, selectedModel, selectedProvider, undefined, thinking, controller.signal)) {
+      for await (const event of sendChat(newContent, threadId, selectedModel, selectedProvider, undefined, thinking, controller.signal, [...truncated, editedMsg])) {
         switch (event.type) {
           case 'chunk':
             if (event.content) {
@@ -383,9 +383,9 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+    <div className="haven-chat haven-halo-main" style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       {/* Header */}
-      <div style={{
+      <div className="haven-chat-header" style={{
         display: 'flex', alignItems: 'center', padding: '8px 12px',
         borderBottom: '1px solid var(--haven-border)', background: 'var(--haven-surface)',
         gap: '8px', flexShrink: 0,
@@ -406,7 +406,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
           </button>
         )}
         {/* Companion (left) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+        <div className="haven-kai-header" style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             {companionAvatar ? (
               <AuthMedia url={companionAvatar} type="img" alt="" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />

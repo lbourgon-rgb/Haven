@@ -102,7 +102,7 @@ export default function ChatMessages({
   return (
     <div
       ref={containerRef}
-      className="hide-scrollbar"
+      className="hide-scrollbar haven-messages"
       style={{
         flex: 1,
         overflowY: 'auto',
@@ -145,11 +145,11 @@ export default function ChatMessages({
 
       {/* Empty state */}
       {messages.length === 0 && !streamingContent && (
-        <div style={{
+        <div className="haven-empty-state" style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           height: '100%', color: 'var(--haven-text-muted)', textAlign: 'center', padding: '40px',
         }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px' }}>💬</div>
+          <div style={{ fontSize: '40px', marginBottom: '12px' }}>k</div>
           <p style={{ fontSize: '14px' }}>Start a conversation</p>
         </div>
       )}

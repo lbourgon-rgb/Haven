@@ -171,7 +171,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type a mess
   }, [text]);
 
   return (
-    <div style={{ position: 'relative', padding: '8px 12px 12px', background: 'var(--haven-bg)' }}>
+    <div className="haven-composer" style={{ position: 'relative', padding: '8px 12px 12px', background: 'var(--haven-bg)' }}>
       {/* GIF picker above */}
       {showGif && <GifPicker onSelect={handleGifSelect} onClose={() => setShowGif(false)} />}
 

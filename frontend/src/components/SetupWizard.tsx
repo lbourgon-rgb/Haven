@@ -9,9 +9,12 @@ interface SetupWizardProps {
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
   // If no Worker URL is resolvable yet (typical on a freshly-installed APK),
   // start on step 1 (Worker URL). Otherwise skip straight to Name.
-  const needsWorkerUrl = !apiBase();
+  const sameOriginWorker = typeof window !== 'undefined'
+    && window.location.protocol.startsWith('http')
+    && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const needsWorkerUrl = !apiBase() && !sameOriginWorker;
   const [step, setStep] = useState(needsWorkerUrl ? 1 : 2);
-  const [workerUrl, setWorkerUrl] = useState(localStorage.getItem('haven-api-url') || '');
+  const [workerUrl, setWorkerUrl] = useState(localStorage.getItem('haven-api-url') || (sameOriginWorker ? window.location.origin : ''));
   const [testingConnection, setTestingConnection] = useState(false);
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -47,6 +50,13 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     } finally {
       setTestingConnection(false);
     }
+  };
+
+  const handlePreviewOnly = () => {
+    persistSet('haven-setup-done', 'true');
+    localStorage.setItem('haven-view', 'chat');
+    localStorage.setItem('haven-preview-mode', 'true');
+    onComplete();
   };
 
   const detectProvider = (key: string): { provider: string; label: string } => {
@@ -251,10 +261,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         {step === 1 && (
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--haven-text)', marginBottom: '8px', textAlign: 'center' }}>
-              Connect to your Haven Worker
+              Connect Haven's chat backend
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--haven-text-muted)', textAlign: 'center', marginBottom: '24px' }}>
-              Paste the URL of the Cloudflare Worker you deployed. It usually looks like{' '}
+              This frontend needs the Haven Worker before Kai can answer, save messages, or use tools. Paste the deployed Worker URL here; it usually looks like{' '}
               <code style={{ color: 'var(--haven-text)' }}>https://your-haven.workers.dev</code>.
             </p>
             <input
@@ -289,8 +299,18 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 opacity: testingConnection ? 0.7 : 1,
               }}
             >{testingConnection ? 'Testing connection...' : 'Test & Continue'}</button>
+            <button
+              onClick={handlePreviewOnly}
+              style={{
+                width: '100%', marginTop: '10px', padding: '12px',
+                borderRadius: '10px', border: '1px solid var(--haven-border)',
+                background: 'transparent',
+                color: 'var(--haven-text)', fontSize: '14px', fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >Preview UI without backend</button>
             <p style={{ fontSize: '11px', color: 'var(--haven-text-muted)', marginTop: '16px', textAlign: 'center' }}>
-              Haven is self-hosted. You deploy the Worker once (free on Cloudflare), then paste the URL here.
+              Preview mode is visual only. Chat, image generation, uploads, history, and sync will come alive after the backend is connected.
             </p>
           </div>
         )}

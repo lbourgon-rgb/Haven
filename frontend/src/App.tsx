@@ -58,13 +58,13 @@ const LS_THREAD = 'haven-active-thread';
 function readStoredView(): View {
   const v = localStorage.getItem(LS_VIEW);
   if (v === 'grid' || v === 'threads' || v === 'chat' || v === 'settings') return v;
-  return 'grid';
+  return 'chat';
 }
 
 export default function App() {
   const [view, setView] = useState<View>(() => readStoredView());
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => localStorage.getItem(LS_THREAD));
-  const [companionName, setCompanionName] = useState('');
+  const [companionName, setCompanionName] = useState('Kai');
   const [companionAvatar, setCompanionAvatar] = useState('');
   const [needsSetup, setNeedsSetup] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -199,7 +199,7 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-    <div style={{ height: '100%', background: 'var(--haven-bg)' }}>
+    <div className="haven-shell" style={{ height: '100%', background: 'var(--haven-bg)' }}>
       <UpdateBanner />
       <SecurityBanner />
 

@@ -1,15 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --haven-bg: #0c0a09;
-  --haven-surface: #1c1917;
-  --haven-card: #292524;
-  --haven-border: #3f3f46;
-  --haven-accent: #d4748a;
-  --haven-accent-soft: #E8A4B8;
-  --haven-text: #fafaf9;
-  --haven-text-secondary: #a8a29e;
-  --haven-text-muted: #78716c;
+  --haven-bg: #fbfaf6;
+  --haven-paper: rgba(251, 250, 246, 0.77);
+  --haven-paper-strong: rgba(251, 250, 246, 0.9);
+  --haven-surface: rgba(251, 250, 246, 0.72);
+  --haven-card: rgba(251, 250, 246, 0.78);
+  --haven-border: rgba(10, 10, 10, 0.14);
+  --haven-accent: #b5894e;
+  --haven-accent-soft: rgba(255, 215, 106, 0.72);
+  --haven-text: #0a0a0a;
+  --haven-text-secondary: rgba(10, 10, 10, 0.72);
+  --haven-text-muted: rgba(10, 10, 10, 0.52);
+  --haven-shadow: 0 20px 80px rgba(25, 18, 9, 0.18);
+  --haven-body-font: 'Patrick Hand', ui-rounded, system-ui, sans-serif;
+  --haven-display-font: 'Caveat', cursive;
+  --haven-mono-font: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; -webkit-overflow-scrolling: touch; }
@@ -20,7 +26,7 @@ html, body, #root {
   padding: 0;
   background: var(--haven-bg);
   color: var(--haven-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--haven-body-font);
   overflow: hidden;
 }
 
@@ -32,3 +38,225 @@ html, body { overscroll-behavior: none; }
 ::-webkit-scrollbar-thumb { background: var(--haven-border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--haven-text-muted); }
 * { scrollbar-width: thin; scrollbar-color: var(--haven-border) transparent; }
+
+button,
+textarea,
+input,
+select {
+  font-family: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.haven-shell {
+  color: var(--haven-text);
+}
+
+.haven-chat,
+.haven-thread-list {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.haven-halo-main::before,
+.haven-halo-list::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: linear-gradient(rgba(251, 250, 246, 0.08), rgba(251, 250, 246, 0.18)), url('/images/bg-main.png');
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.01);
+}
+
+.haven-halo-list::before {
+  background-image: linear-gradient(rgba(251, 250, 246, 0.05), rgba(251, 250, 246, 0.2)), url('/images/bg-all-chats.png');
+}
+
+.haven-halo-main::after,
+.haven-halo-list::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 26px;
+  z-index: -1;
+  background: var(--haven-accent);
+  opacity: 0.82;
+  box-shadow: 0 0 42px rgba(181, 137, 78, 0.55);
+}
+
+.haven-chat-header,
+.haven-thread-header {
+  min-height: 74px;
+  border-bottom: 1px solid rgba(10, 10, 10, 0.13) !important;
+  background: linear-gradient(180deg, rgba(251, 250, 246, 0.82), rgba(251, 250, 246, 0.6)) !important;
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  box-shadow: 0 10px 36px rgba(25, 18, 9, 0.08);
+}
+
+.haven-kai-header > div:first-child,
+.haven-thread-header img,
+.haven-thread-row img {
+  box-shadow: 0 0 0 2px rgba(251, 250, 246, 0.75), 0 0 0 4px rgba(181, 137, 78, 0.35);
+}
+
+.haven-chat-header [style*="font-weight: 600"],
+.haven-thread-header [style*="font-weight: 600"] {
+  font-family: var(--haven-display-font);
+  font-size: 22px !important;
+  letter-spacing: 0;
+}
+
+.haven-messages {
+  padding-top: 22px !important;
+  background: transparent !important;
+}
+
+.haven-empty-state {
+  margin: 28px;
+  border: 1px solid rgba(10, 10, 10, 0.13);
+  border-radius: 22px;
+  background: rgba(251, 250, 246, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.haven-empty-state > div {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--haven-display-font);
+  font-size: 58px !important;
+  color: #fbfaf6;
+  background: var(--haven-accent);
+  box-shadow: 0 16px 46px rgba(181, 137, 78, 0.34);
+}
+
+.haven-message-row {
+  padding-inline: 14px !important;
+  margin-bottom: 10px !important;
+}
+
+.haven-message-row > div {
+  max-width: min(86%, 680px) !important;
+}
+
+.haven-bubble {
+  border-radius: 20px !important;
+  border: 1px solid rgba(10, 10, 10, 0.11);
+  background: rgba(251, 250, 246, 0.78) !important;
+  box-shadow: 0 10px 30px rgba(25, 18, 9, 0.1);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.haven-bubble.is-user {
+  background: rgba(255, 215, 106, 0.72) !important;
+  color: #0a0a0a !important;
+}
+
+.haven-bubble.is-companion {
+  border-left: 4px solid var(--haven-accent) !important;
+}
+
+.haven-bubble.is-media {
+  padding: 5px !important;
+  overflow: hidden;
+}
+
+.haven-message-meta {
+  font-family: var(--haven-mono-font);
+  letter-spacing: 0;
+}
+
+.haven-message-meta span {
+  color: rgba(10, 10, 10, 0.52) !important;
+}
+
+.haven-composer {
+  padding: 8px 12px max(12px, env(safe-area-inset-bottom)) !important;
+  background: linear-gradient(180deg, rgba(251, 250, 246, 0.12), rgba(251, 250, 246, 0.68)) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.haven-composer > div:last-child > div:last-child {
+  border-radius: 999px !important;
+  background: rgba(251, 250, 246, 0.72) !important;
+  border: 1px solid rgba(10, 10, 10, 0.16) !important;
+  box-shadow: 0 12px 36px rgba(25, 18, 9, 0.12);
+}
+
+.haven-composer textarea {
+  color: var(--haven-text) !important;
+  font-size: 16px !important;
+}
+
+.haven-composer textarea::placeholder {
+  color: rgba(10, 10, 10, 0.48);
+}
+
+.haven-thread-scroll {
+  background: rgba(251, 250, 246, 0.16);
+}
+
+.haven-thread-row {
+  margin: 10px 12px;
+  width: auto !important;
+  border: 1px solid rgba(10, 10, 10, 0.12) !important;
+  border-radius: 18px;
+  background: rgba(251, 250, 246, 0.68) !important;
+  box-shadow: 0 10px 30px rgba(25, 18, 9, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.haven-thread-row:hover {
+  transform: translateY(-1px);
+}
+
+@media (min-width: 720px) {
+  .haven-chat,
+  .haven-thread-list {
+    max-width: 860px;
+    margin: 0 auto;
+    border-inline: 1px solid rgba(10, 10, 10, 0.1);
+    box-shadow: var(--haven-shadow);
+  }
+}
+
+@media (max-width: 520px) {
+  .haven-chat-header {
+    gap: 6px !important;
+    padding-inline: 8px !important;
+  }
+
+  .haven-chat-header [style*="max-width: 320px"] {
+    max-width: 116px !important;
+    -webkit-line-clamp: 1 !important;
+  }
+
+  .haven-chat-header > div:last-child {
+    display: none !important;
+  }
+
+  .haven-chat-header [style*="flex: 1"] {
+    flex: 0.2 !important;
+  }
+
+  .haven-message-row {
+    padding-inline: 10px !important;
+  }
+
+  .haven-message-row > div {
+    max-width: 90% !important;
+  }
+}

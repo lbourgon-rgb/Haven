@@ -296,6 +296,7 @@ export default function MessageBubble({ message, isStreaming, fontSize = 15, fon
 
   return (
     <div
+      className={`haven-message-row ${isUser ? 'is-user' : 'is-companion'}`}
       style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: '8px', padding: '0 16px', gap: '8px' }}
       onClick={() => setShowActions(!showActions)}
     >
@@ -306,6 +307,7 @@ export default function MessageBubble({ message, isStreaming, fontSize = 15, fon
       <div style={{ maxWidth: '85%', minWidth: '60px' }}>
         {/* Bubble */}
         <div
+          className={`haven-bubble ${isUser ? 'is-user' : 'is-companion'} ${mediaOnly ? 'is-media' : ''}`}
           style={{
             background: isUser ? 'var(--haven-accent-soft)' : 'var(--haven-card)',
             color: textColor && !isUser ? textColor : isUser ? '#1c1917' : 'var(--haven-text)',
@@ -448,7 +450,7 @@ export default function MessageBubble({ message, isStreaming, fontSize = 15, fon
         )}
 
         {/* Timestamp + model */}
-        <div style={{
+        <div className="haven-message-meta" style={{
           display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px',
           justifyContent: isUser ? 'flex-end' : 'flex-start',
         }}>

@@ -23,6 +23,8 @@ const PROVIDER_EMOJI: Record<string, string> = {
   groq: '⚡',
   xai: '🌀',
   custom: '🛠️',
+  serythrae: '◇',
+  moonshot: '☾',
 };
 
 function getFavorites(): Set<string> {
