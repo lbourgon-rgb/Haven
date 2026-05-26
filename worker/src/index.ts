@@ -2140,8 +2140,11 @@ export default {
       // ---- File Upload (R2) ----
       if (path === '/api/upload' && request.method === 'POST') {
         const formData = await request.formData();
-        const file = formData.get('file') as File;
-        if (!file) return json({ error: 'No file provided' }, 400);
+        const entry = formData.get('file') as unknown;
+        if (!entry || typeof entry !== 'object' || !('stream' in entry) || !('name' in entry) || !('size' in entry)) {
+          return json({ error: 'No file provided' }, 400);
+        }
+        const file = entry as File;
         if (file.size > 20 * 1024 * 1024) return json({ error: 'File too large (max 20MB)' }, 413);
 
         const ext = file.name.split('.').pop() || 'bin';

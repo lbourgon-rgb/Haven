@@ -27,7 +27,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create Wrangler config
+        shell: bash
+        env:
+          HAVEN_WORKER_NAME: ${{ vars.HAVEN_WORKER_NAME || 'haven' }}
+          HAVEN_D1_DATABASE_NAME: ${{ vars.HAVEN_D1_DATABASE_NAME || 'haven-db' }}
+          HAVEN_D1_DATABASE_ID: ${{ secrets.HAVEN_D1_DATABASE_ID || vars.HAVEN_D1_DATABASE_ID }}
+          HAVEN_R2_BUCKET_NAME: ${{ vars.HAVEN_R2_BUCKET_NAME || 'haven-files' }}
+        run: |
+          if [ -z "$HAVEN_D1_DATABASE_ID" ]; then
+            echo "HAVEN_D1_DATABASE_ID must be set as a GitHub Actions secret or repository variable." >&2
+            exit 1
+          fi
+
+          cat > wrangler.toml <<EOF
+          name = "$HAVEN_WORKER_NAME"
+          main = "src/index.ts"
+          compatibility_date = "2025-01-01"
+          compatibility_flags = ["nodejs_compat"]
+
+          [[d1_databases]]
+          binding = "DB"
+          database_name = "$HAVEN_D1_DATABASE_NAME"
+          database_id = "$HAVEN_D1_DATABASE_ID"
+
+          [[r2_buckets]]
+          binding = "FILES"
+          bucket_name = "$HAVEN_R2_BUCKET_NAME"
+          EOF
+
       - name: Deploy to Cloudflare
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
