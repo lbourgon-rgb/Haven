@@ -242,7 +242,7 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     } else if (!error) {
       setError('No response received — the model may be unavailable or the connection was interrupted. Try again.');
     }
-  }, [threadId, selectedModel, selectedProvider, onThreadCreated, thinking]);
+  }, [messages, threadId, selectedModel, selectedProvider, onThreadCreated, thinking]);
 
   const handleEditMessage = useCallback(async (messageId: string, newContent: string) => {
     // Find the index of the edited message

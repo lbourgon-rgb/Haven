@@ -8,6 +8,9 @@ interface Env {
   FILES: R2Bucket;
   OPENROUTER_API_KEY?: string;
   OLLAMA_URL?: string;
+  CONTINUITY_WORKER_URL?: string;
+  CONTINUITY_API_KEY?: string;
+  CONTINUITY?: Fetcher;
 }
 
 function getCorsHeaders(request: Request): Record<string, string> {
@@ -51,6 +54,62 @@ function getCompanionId(request: Request): number {
   const raw = request.headers.get('x-companion-id');
   const n = raw ? Number(raw) : 1;
   return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function continuityExternalId(threadId: string, role: string, messageId: string): string {
+  return `haven:${threadId}:${role}:${messageId}`;
+}
+
+async function sendContinuityEvent(env: Env, input: {
+  threadId: string;
+  messageId: string;
+  role: 'human' | 'companion' | 'system' | 'tool';
+  content: string;
+  model?: string | null;
+  companionId?: number;
+}): Promise<void> {
+  const base = (env.CONTINUITY_WORKER_URL || '').replace(/\/+$/, '');
+  if ((!base && !env.CONTINUITY) || !env.CONTINUITY_API_KEY || !input.content.trim()) return;
+
+  const init: RequestInit = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${env.CONTINUITY_API_KEY}`,
+    },
+    body: JSON.stringify({
+      source: 'haven',
+      companion_id: 'kaisoryth',
+      conversation_id: input.threadId,
+      external_message_id: continuityExternalId(input.threadId, input.role, input.messageId),
+      role: input.role,
+      author: input.role === 'companion'
+        ? { id: 'kaisoryth', name: 'Kai' }
+        : { id: 'vel', name: 'Vel' },
+      content: input.content,
+      created_at: new Date().toISOString(),
+      pre_response_required: input.role === 'human',
+      processing_status: 'pending',
+      metadata: {
+        surface: 'haven',
+        storage: 'haven-worker-d1',
+        model: input.model || null,
+        haven_companion_id: input.companionId || null,
+      },
+      raw: {
+        thread_id: input.threadId,
+        message_id: input.messageId,
+      },
+    }),
+  };
+  const response = env.CONTINUITY
+    ? await env.CONTINUITY.fetch(new Request('https://continuity.internal/events', init))
+    : await fetch(`${base}/events`, init);
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`continuity ${response.status}: ${body.slice(0, 240)}`);
+  }
 }
 
 // ============================================================
@@ -1157,7 +1216,7 @@ async function checkRateLimit(db: D1Database, ip: string, endpoint: string): Pro
 // ============================================================
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     _cors = getCorsHeaders(request);
 
     if (request.method === 'OPTIONS') {
@@ -1287,6 +1346,14 @@ export default {
         await env.DB.prepare(
           'INSERT INTO messages (id, thread_id, role, content) VALUES (?, ?, "user", ?)'
         ).bind(userMsgId, activeThreadId, message).run();
+        ctx.waitUntil(sendContinuityEvent(env, {
+          threadId: activeThreadId,
+          messageId: userMsgId,
+          role: 'human',
+          content: message,
+          model,
+          companionId: chatCompanionId,
+        }).catch((err) => console.warn('[continuity] user event failed', err)));
 
         // Load conversation history
         const history = await env.DB.prepare(
@@ -1453,6 +1520,14 @@ export default {
               await env.DB.prepare(
                 'INSERT INTO messages (id, thread_id, role, content, model) VALUES (?, ?, "companion", ?, ?)'
               ).bind(compMsgId, activeThreadId, cleanResponse, model).run();
+              ctx.waitUntil(sendContinuityEvent(env, {
+                threadId: activeThreadId,
+                messageId: compMsgId,
+                role: 'companion',
+                content: cleanResponse,
+                model,
+                companionId: chatCompanionId,
+              }).catch((err) => console.warn('[continuity] companion event failed', err)));
 
               // Update thread timestamp
               await env.DB.prepare(
