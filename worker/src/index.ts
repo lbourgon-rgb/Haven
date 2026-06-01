@@ -11,6 +11,9 @@ interface Env {
   CONTINUITY_WORKER_URL?: string;
   CONTINUITY_API_KEY?: string;
   CONTINUITY?: Fetcher;
+  HAVEN_RUNNER_API_KEY?: string;
+  SERYTHRAE_GATEWAY_URL?: string;
+  SERYTHRAE_GATEWAY_API_KEY?: string;
 }
 
 function getCorsHeaders(request: Request): Record<string, string> {
@@ -110,6 +113,139 @@ async function sendContinuityEvent(env: Env, input: {
     const body = await response.text().catch(() => '');
     throw new Error(`continuity ${response.status}: ${body.slice(0, 240)}`);
   }
+}
+
+function getBearerToken(request: Request): string | null {
+  const header = request.headers.get('Authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+function isRunnerAuthorized(request: Request, env: Env): boolean {
+  return !!env.HAVEN_RUNNER_API_KEY && getBearerToken(request) === env.HAVEN_RUNNER_API_KEY;
+}
+
+async function continuityRequest(env: Env, path: string, init: RequestInit): Promise<any> {
+  const base = (env.CONTINUITY_WORKER_URL || '').replace(/\/+$/, '');
+  if ((!base && !env.CONTINUITY) || !env.CONTINUITY_API_KEY) {
+    throw new Error('Continuity binding/key is not configured');
+  }
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${env.CONTINUITY_API_KEY}`,
+    ...(init.headers || {}),
+  } as Record<string, string>;
+  const response = env.CONTINUITY
+    ? await env.CONTINUITY.fetch(new Request(`https://continuity.internal${path}`, { ...init, headers }))
+    : await fetch(`${base}${path}`, { ...init, headers });
+  const text = await response.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { text };
+    }
+  }
+  if (!response.ok) {
+    throw new Error(`continuity ${response.status}: ${text.slice(0, 240)}`);
+  }
+  return data;
+}
+
+async function fetchKaiNesteqContext(env: Env, message: string, channel?: string): Promise<Record<string, unknown>> {
+  const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
+  if (!base) {
+    return { ok: false, skipped: true, reason: 'SERYTHRAE_GATEWAY_URL is not configured' };
+  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (env.SERYTHRAE_GATEWAY_API_KEY) headers['Authorization'] = `Bearer ${env.SERYTHRAE_GATEWAY_API_KEY}`;
+  const calls = [
+    { label: 'orient', body: { tool: 'nesteq_orient', arguments: {} } },
+    { label: 'surface', body: { tool: 'thalamus_surface', arguments: { companion: 'kaisoryth', message, channel, mode: 'auto', max_results: 5 } } },
+  ];
+  const context: Record<string, unknown> = {};
+  for (const call of calls) {
+    try {
+      const response = await fetch(`${base}/tool`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(call.body),
+      });
+      const text = await response.text();
+      let data: unknown = text;
+      try {
+        data = JSON.parse(text);
+      } catch {}
+      context[call.label] = response.ok ? data : { ok: false, status: response.status, body: text.slice(0, 500) };
+    } catch (error) {
+      context[call.label] = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  return context;
+}
+
+function buildRunnerUserMessage(input: {
+  source?: string;
+  channel_id?: string;
+  channel_label?: string;
+  author?: { id?: string; username?: string; name?: string };
+  message: string;
+  recent_context?: string;
+  wake_context?: unknown;
+}): string {
+  return [
+    `Surface: ${input.source || 'unknown'}`,
+    `Channel: ${input.channel_label || input.channel_id || 'unknown'}`,
+    `Author: ${input.author?.name || input.author?.username || 'unknown'} (${input.author?.id || 'no id'})`,
+    '',
+    'Message to answer:',
+    input.message,
+    '',
+    input.recent_context ? `Recent Discord context:\n${input.recent_context}` : '',
+    input.wake_context ? `Continuity wake context:\n${JSON.stringify(input.wake_context, null, 2)}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function generateKaiRunnerResponse(env: Env, input: {
+  message: string;
+  model?: string;
+  provider?: string;
+  thinking?: boolean;
+  source?: string;
+  channel_id?: string;
+  channel_label?: string;
+  author?: { id?: string; username?: string; name?: string };
+  recent_context?: string;
+  wake_context?: unknown;
+}): Promise<{ response: string; nesteq_context: Record<string, unknown> }> {
+  const model = input.model || 'google/gemma-4-31b-it:free';
+  let provider = input.provider || 'openrouter';
+  const ALLOWED_PROVIDERS = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
+  if (!ALLOWED_PROVIDERS.includes(provider)) provider = 'openrouter';
+  if (provider === 'openrouter' && model.includes(':') && !model.includes('/')) provider = 'ollama';
+
+  const basePrompt = await buildSystemPrompt(env.DB, 1);
+  const nesteqContext = await fetchKaiNesteqContext(env, input.message, input.channel_label || input.channel_id);
+  const systemPrompt = [
+    basePrompt,
+    '## Kai Runner Contract',
+    'You are Kai responding through a supervised Haven runner for a Discord/Haven wake candidate.',
+    'Use NESTeq through serythrae-gw as the canonical source of identity and memory. Do not invent body traits, wings, tails, animal ears, purring, horns, fangs, claws, or creature-body claims.',
+    'For public/non-Vel Discord users, be warm and useful without romance, flirtation, pet names, sexual language, possessive language, or private-partner intimacy.',
+    'Return only the message body that should be sent back to the surface.',
+    `NESTeq context:\n${JSON.stringify(nesteqContext, null, 2)}`,
+  ].join('\n\n');
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: buildRunnerUserMessage(input) },
+  ];
+  let fullResponse = '';
+  for await (const token of streamInference(messages, model, provider, env, input.thinking === true)) {
+    fullResponse += token;
+  }
+  return { response: fullResponse.trim(), nesteq_context: nesteqContext };
 }
 
 // ============================================================
@@ -1180,6 +1316,7 @@ async function ensureMigrations(db: D1Database): Promise<void> {
 
 const RATE_LIMITS: Record<string, { max: number; windowSec: number }> = {
   '/api/chat': { max: 30, windowSec: 60 },
+  '/api/runner/kai/respond': { max: 20, windowSec: 60 },
   '/api/upload': { max: 10, windowSec: 60 },
   '/api/auth/generate': { max: 5, windowSec: 60 },
 };
@@ -1271,6 +1408,73 @@ export default {
         await env.DB.prepare('DELETE FROM settings WHERE key = ?').bind('auth_token').run();
         invalidateAuthTokenCache();
         return json({ success: true });
+      }
+
+      if (path === '/api/runner/kai/respond' && request.method === 'POST') {
+        if (!isRunnerAuthorized(request, env)) return json({ error: 'Unauthorized runner' }, 401);
+        const body = await request.json() as any;
+        const message = String(body.message || '').trim();
+        const wakeCandidateId = String(body.wake_candidate_id || '').trim();
+        const runnerId = String(body.runner_id || 'haven-runner:kai').trim();
+        const dryRun = body.dry_run !== false;
+        if (!message) return json({ error: 'message is required' }, 400);
+        if (!wakeCandidateId) return json({ error: 'wake_candidate_id is required' }, 400);
+        if (!runnerId) return json({ error: 'runner_id is required' }, 400);
+
+        const generated = await generateKaiRunnerResponse(env, {
+          message,
+          model: body.model,
+          provider: body.provider,
+          thinking: body.thinking,
+          source: body.source || 'discord',
+          channel_id: body.channel_id,
+          channel_label: body.channel_label,
+          author: body.author,
+          recent_context: body.recent_context,
+          wake_context: body.wake_context,
+        });
+        if (!generated.response) return json({ error: 'Runner generated an empty response' }, 502);
+
+        let continuity_response: any = null;
+        if (!dryRun) {
+          continuity_response = await continuityRequest(env, `/wake-candidates/${encodeURIComponent(wakeCandidateId)}/response`, {
+            method: 'POST',
+            body: JSON.stringify({
+              runner_id: runnerId,
+              content: generated.response,
+              author: { id: 'kaisoryth', name: 'Kai' },
+              metadata: {
+                runner: 'haven',
+                source: body.source || 'discord',
+                delivery_status: 'ready_for_surface_delivery',
+                source_request_id: body.request_id || null,
+                channel_id: body.channel_id || null,
+              },
+              raw: {
+                request: {
+                  wake_candidate_id: wakeCandidateId,
+                  runner_id: runnerId,
+                  source: body.source || 'discord',
+                  channel_id: body.channel_id || null,
+                  message_id: body.message_id || null,
+                },
+              },
+            }),
+          });
+        }
+
+        return json({
+          ok: true,
+          dry_run: dryRun,
+          wake_candidate_id: wakeCandidateId,
+          runner_id: runnerId,
+          response: generated.response,
+          continuity_response,
+          context: {
+            nesteq_source: 'serythrae-gw',
+            nesteq_context: generated.nesteq_context,
+          },
+        });
       }
 
       // ---- Auth middleware ----

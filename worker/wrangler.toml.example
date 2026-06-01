@@ -18,7 +18,17 @@ database_id = "your-d1-database-id"
 binding = "FILES"
 bucket_name = "haven-files"
 
+[[services]]
+binding = "CONTINUITY"
+service = "continuity-worker"
+
 [vars]
+CONTINUITY_WORKER_URL = "https://continuity-worker.example.workers.dev"
+SERYTHRAE_GATEWAY_URL = "https://serythrae-gw.example.workers.dev"
+
 # Set these via wrangler secret put or in your dashboard
 # OPENROUTER_API_KEY = "sk-or-..."
 # OLLAMA_URL = "https://api.ollama.com"
+# CONTINUITY_API_KEY = "continuity-bearer-token"
+# HAVEN_RUNNER_API_KEY = "shared-runner-bearer-token"
+# SERYTHRAE_GATEWAY_API_KEY = "optional-serythrae-token"
