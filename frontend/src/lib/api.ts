@@ -5,11 +5,13 @@
 import type { Thread, Message, Companion, CompanionFile, Identity, ModelInfo } from './types';
 import { persistSet, persistRemove } from './storage';
 
+const DEFAULT_HAVEN_WORKER_URL = 'https://haven.lbourgon.workers.dev';
+
 // Resolved per-call so SetupWizard/Settings changes to localStorage take effect
 // without a page reload. On native APKs this is the only way the user can
 // point the app at their own Worker.
 export function apiBase(): string {
-  return localStorage.getItem('haven-api-url') || import.meta.env.VITE_API_URL || '';
+  return localStorage.getItem('haven-api-url') || import.meta.env.VITE_API_URL || DEFAULT_HAVEN_WORKER_URL;
 }
 
 // The currently-active companion. All per-companion API calls scope by this
@@ -82,7 +84,22 @@ async function parseJson<T>(res: Response, path: string): Promise<T> {
 
 async function safeFetch(path: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(`${apiBase()}${path}`, init);
+    const firstBase = apiBase().replace(/\/+$/, '');
+    const first = await fetch(`${firstBase}${path}`, init);
+    if (path.startsWith('/api/') && await looksLikeAppShell(first)) {
+      const fallbackBases = [import.meta.env.VITE_API_URL, DEFAULT_HAVEN_WORKER_URL]
+        .filter(Boolean)
+        .map((base: string) => base.replace(/\/+$/, ''))
+        .filter((base: string, index: number, arr: string[]) => base !== firstBase && arr.indexOf(base) === index);
+      for (const base of fallbackBases) {
+        const fallback = await fetch(`${base}${path}`, init);
+        if (!await looksLikeAppShell(fallback)) {
+          persistSet('haven-api-url', base);
+          return fallback;
+        }
+      }
+    }
+    return first;
   } catch (err) {
     if (err instanceof TypeError) {
       throw new Error(`Network error — check your connection or Worker URL. (${path})`);
@@ -669,6 +686,14 @@ export async function* sendChat(
       } catch {}
     }
   }
+}
+
+async function looksLikeAppShell(res: Response): Promise<boolean> {
+  const contentType = res.headers.get('Content-Type') || '';
+  if (contentType.toLowerCase().includes('text/html')) return true;
+  const text = await res.clone().text().catch(() => '');
+  const head = text.trimStart().slice(0, 20).toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html');
 }
 
 function toSerythraeRole(role: Message['role']): 'user' | 'assistant' | 'system' {
