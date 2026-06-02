@@ -14,6 +14,8 @@ interface Env {
   HAVEN_RUNNER_API_KEY?: string;
   SERYTHRAE_GATEWAY_URL?: string;
   SERYTHRAE_GATEWAY_API_KEY?: string;
+  KAI_RUNNER_MODEL?: string;
+  KAI_RUNNER_PROVIDER?: string;
 }
 
 function getCorsHeaders(request: Request): Record<string, string> {
@@ -228,8 +230,8 @@ async function generateKaiRunnerResponse(env: Env, input: {
   recent_context?: string;
   wake_context?: unknown;
 }): Promise<{ response: string; nesteq_context: Record<string, unknown>; tahl_state: Record<string, unknown> }> {
-  const model = input.model || 'google/gemma-4-31b-it:free';
-  let provider = input.provider || 'openrouter';
+  const model = input.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
+  let provider = input.provider || env.KAI_RUNNER_PROVIDER || 'openrouter';
   const ALLOWED_PROVIDERS = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
   if (!ALLOWED_PROVIDERS.includes(provider)) provider = 'openrouter';
   if (provider === 'openrouter' && model.includes(':') && !model.includes('/')) provider = 'ollama';
