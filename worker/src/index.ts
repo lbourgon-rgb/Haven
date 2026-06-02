@@ -14,6 +14,8 @@ interface Env {
   HAVEN_RUNNER_API_KEY?: string;
   SERYTHRAE_GATEWAY_URL?: string;
   SERYTHRAE_GATEWAY_API_KEY?: string;
+  NEXUS_GATEWAY_URL?: string;
+  NEXUS_MCP_API_KEY?: string;
   KAI_RUNNER_MODEL?: string;
   KAI_RUNNER_PROVIDER?: string;
 }
@@ -156,6 +158,29 @@ async function continuityRequest(env: Env, path: string, init: RequestInit): Pro
 }
 
 async function fetchKaiNesteqContext(env: Env, message: string, channel?: string): Promise<Record<string, unknown>> {
+  const nexusBase = (env.NEXUS_GATEWAY_URL || '').replace(/\/+$/, '');
+  if (nexusBase && env.NEXUS_MCP_API_KEY) {
+    try {
+      const response = await fetch(`${nexusBase}/api/kaisoryth/context`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.NEXUS_MCP_API_KEY}`,
+        },
+        body: JSON.stringify({ message, channel, source: 'haven-runner' }),
+      });
+      const text = await response.text();
+      let data: unknown = text;
+      try {
+        data = JSON.parse(text);
+      } catch {}
+      if (response.ok) return { source: 'nexus-gateway', context: data };
+      return { source: 'nexus-gateway', ok: false, status: response.status, body: text.slice(0, 500) };
+    } catch (error) {
+      return { source: 'nexus-gateway', ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
   if (!base) {
     return { ok: false, skipped: true, reason: 'SERYTHRAE_GATEWAY_URL is not configured' };
