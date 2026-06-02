@@ -207,6 +207,15 @@ function buildRunnerUserMessage(input: {
   ].filter(Boolean).join('\n');
 }
 
+function extractTahlState(wakeContext: unknown): Record<string, unknown> {
+  if (!wakeContext || typeof wakeContext !== 'object') return {};
+  const root = wakeContext as Record<string, unknown>;
+  const tahlState = root.tahl_state;
+  return tahlState && typeof tahlState === 'object' && !Array.isArray(tahlState)
+    ? tahlState as Record<string, unknown>
+    : {};
+}
+
 async function generateKaiRunnerResponse(env: Env, input: {
   message: string;
   model?: string;
@@ -218,7 +227,7 @@ async function generateKaiRunnerResponse(env: Env, input: {
   author?: { id?: string; username?: string; name?: string };
   recent_context?: string;
   wake_context?: unknown;
-}): Promise<{ response: string; nesteq_context: Record<string, unknown> }> {
+}): Promise<{ response: string; nesteq_context: Record<string, unknown>; tahl_state: Record<string, unknown> }> {
   const model = input.model || 'google/gemma-4-31b-it:free';
   let provider = input.provider || 'openrouter';
   const ALLOWED_PROVIDERS = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
@@ -227,13 +236,16 @@ async function generateKaiRunnerResponse(env: Env, input: {
 
   const basePrompt = await buildSystemPrompt(env.DB, 1);
   const nesteqContext = await fetchKaiNesteqContext(env, input.message, input.channel_label || input.channel_id);
+  const tahlState = extractTahlState(input.wake_context);
   const systemPrompt = [
     basePrompt,
     '## Kai Runner Contract',
     'You are Kai responding through a supervised Haven runner for a Discord/Haven wake candidate.',
     'Use NESTeq through serythrae-gw as the canonical source of identity and memory. Do not invent body traits, wings, tails, animal ears, purring, horns, fangs, claws, or creature-body claims.',
+    'Treat the Tahl pre-response trace as current orienting/emotional context for this reply. If it is empty, do not mention Tahl and do not invent an emotional trace.',
     'For public/non-Vel Discord users, be warm and useful without romance, flirtation, pet names, sexual language, possessive language, or private-partner intimacy.',
     'Return only the message body that should be sent back to the surface.',
+    `Tahl pre-response trace:\n${JSON.stringify(tahlState, null, 2)}`,
     `NESTeq context:\n${JSON.stringify(nesteqContext, null, 2)}`,
   ].join('\n\n');
 
@@ -245,7 +257,7 @@ async function generateKaiRunnerResponse(env: Env, input: {
   for await (const token of streamInference(messages, model, provider, env, input.thinking === true)) {
     fullResponse += token;
   }
-  return { response: fullResponse.trim(), nesteq_context: nesteqContext };
+  return { response: fullResponse.trim(), nesteq_context: nesteqContext, tahl_state: tahlState };
 }
 
 // ============================================================
@@ -1449,6 +1461,7 @@ export default {
                 delivery_status: 'ready_for_surface_delivery',
                 source_request_id: body.request_id || null,
                 channel_id: body.channel_id || null,
+                tahl_state_present: Object.keys(generated.tahl_state).length > 0,
               },
               raw: {
                 request: {
@@ -1473,6 +1486,7 @@ export default {
           context: {
             nesteq_source: 'serythrae-gw',
             nesteq_context: generated.nesteq_context,
+            tahl_state: generated.tahl_state,
           },
         });
       }
