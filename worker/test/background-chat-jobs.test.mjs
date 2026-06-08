@@ -30,4 +30,15 @@ describe('background chat jobs contract', () => {
     assert.match(jobRunnerBody, /SET status = 'failed', error = \?/);
     assert.doesNotMatch(jobRunnerBody, /DELETE FROM messages/);
   });
+
+  it('does not use destructive parent-row replace statements in full import', () => {
+    const fullImportBody = source.slice(
+      source.indexOf("'/api/import/full'"),
+      source.indexOf('// ---- MCP Servers ----')
+    );
+    assert.doesNotMatch(fullImportBody, /INSERT OR REPLACE INTO companion/);
+    assert.doesNotMatch(fullImportBody, /INSERT OR REPLACE INTO threads/);
+    assert.match(fullImportBody, /ON CONFLICT\(id\) DO UPDATE SET/);
+    assert.match(fullImportBody, /const mid = m\.id \|\| crypto\.randomUUID\(\)/);
+  });
 });

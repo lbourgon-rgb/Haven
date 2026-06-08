@@ -2806,7 +2806,13 @@ export default {
 
         for (const c of (bundle.companions || [])) {
           try {
-            await env.DB.prepare('INSERT OR REPLACE INTO companion (id, name, avatar_url, created_at) VALUES (?, ?, ?, ?)').bind(c.id, c.name, c.avatar_url || null, c.created_at || new Date().toISOString()).run();
+            await env.DB.prepare(`
+              INSERT INTO companion (id, name, avatar_url, created_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                avatar_url = excluded.avatar_url
+            `).bind(c.id, c.name, c.avatar_url || null, c.created_at || new Date().toISOString()).run();
             imported++;
           } catch (e: any) { errors.push(`companion ${c.name}: ${e.message}`); }
         }
@@ -2817,9 +2823,16 @@ export default {
         }
         for (const t of (bundle.threads || [])) {
           try {
-            await env.DB.prepare('INSERT OR REPLACE INTO threads (id, companion_id, title, last_message_at, created_at) VALUES (?, ?, ?, ?, ?)').bind(t.id, t.companion_id || 1, t.title, t.last_message_at, t.created_at || new Date().toISOString()).run();
+            await env.DB.prepare(`
+              INSERT INTO threads (id, companion_id, title, last_message_at, created_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                companion_id = excluded.companion_id,
+                title = excluded.title,
+                last_message_at = excluded.last_message_at
+            `).bind(t.id, t.companion_id || 1, t.title, t.last_message_at, t.created_at || new Date().toISOString()).run();
             for (const m of (t.messages || [])) {
-              const mid = crypto.randomUUID();
+              const mid = m.id || crypto.randomUUID();
               await env.DB.prepare('INSERT OR IGNORE INTO messages (id, thread_id, role, content, model, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(mid, t.id, m.role, m.content, m.model || null, m.created_at || new Date().toISOString()).run();
             }
           } catch (e: any) { errors.push(`thread: ${e.message}`); }
