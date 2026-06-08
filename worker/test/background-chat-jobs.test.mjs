@@ -20,6 +20,16 @@ describe('background chat jobs contract', () => {
     assert.match(source, /return json\(\{\s*job_id: jobId,\s*thread_id: turn\.activeThreadId,\s*user_message_id: turn\.userMsgId,\s*status: 'queued'/s);
   });
 
+  it('keeps Kai chat jobs on the Serythrae provider lane when selected', () => {
+    assert.match(source, /const allowedProviders = \['serythrae', 'openrouter'/);
+    assert.match(source, /async function generateSerythraeChatReply/);
+    assert.match(source, /if \(input\.provider === 'serythrae' && input\.companionId === 1\)/);
+    assert.match(source, /SERYTHRAE_GATEWAY\?: Fetcher/);
+    assert.match(source, /gateway \? 'https:\/\/serythrae-gw\/chat' : `\$\{base\}\/chat`/);
+    assert.match(source, /surface: 'haven'/);
+    assert.match(source, /session_id: input\.threadId/);
+  });
+
   it('runs jobs in waitUntil and marks completion or failure without deleting the user message', () => {
     const jobRunnerBody = source.slice(
       source.indexOf('async function runChatJob'),

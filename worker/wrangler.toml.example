@@ -22,6 +22,11 @@ bucket_name = "haven-files"
 binding = "CONTINUITY"
 service = "continuity-worker"
 
+[[services]]
+binding = "SERYTHRAE_GATEWAY"
+service = "serythrae-gw"
+environment = "production"
+
 [vars]
 CONTINUITY_WORKER_URL = "https://continuity-worker.example.workers.dev"
 SERYTHRAE_GATEWAY_URL = "https://serythrae-gw.example.workers.dev"

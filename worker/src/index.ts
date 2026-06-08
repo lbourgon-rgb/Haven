@@ -16,6 +16,7 @@ interface Env {
   SERYTHRAE_GATEWAY_API_KEY?: string;
   NEXUS_GATEWAY_URL?: string;
   NEXUS_MCP_API_KEY?: string;
+  SERYTHRAE_GATEWAY?: Fetcher;
   KAI_RUNNER_MODEL?: string;
   KAI_RUNNER_PROVIDER?: string;
 }
@@ -1355,7 +1356,7 @@ type ChatProgressEvent =
   | { type: 'notice'; message: string };
 
 function normalizeChatProviderConfig(model = 'google/gemma-4-31b-it:free', provider = 'openrouter'): ChatProviderConfig {
-  const allowedProviders = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
+  const allowedProviders = ['serythrae', 'openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
   let normalizedProvider = allowedProviders.includes(provider) ? provider : 'openrouter';
   if (normalizedProvider === 'openrouter' && model.includes(':') && !model.includes('/')) {
     normalizedProvider = 'ollama';
@@ -1436,6 +1437,120 @@ async function buildChatMessagesForThread(env: Env, input: {
   ];
 }
 
+async function buildSerythraeSessionMessages(env: Env, threadId: string): Promise<Array<{ role: 'user' | 'assistant' | 'system'; content: string }>> {
+  const history = await env.DB.prepare(
+    'SELECT role, content FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT 50'
+  ).bind(threadId).all<{ role: string; content: string }>();
+
+  return (history.results || []).map((m) => ({
+    role: m.role === 'companion' ? 'assistant' : m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+    content: m.content,
+  }));
+}
+
+async function generateSerythraeChatReply(env: Env, input: {
+  threadId: string;
+  message: string;
+  model: string;
+  image?: string;
+  thinking?: boolean;
+  onChunk?: (chunk: string) => void | Promise<void>;
+}): Promise<{ content: string; model: string; toolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> }> {
+  const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
+  const gateway = env.SERYTHRAE_GATEWAY;
+  if (!gateway && !base) throw new Error('SERYTHRAE_GATEWAY_URL is not configured');
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (env.SERYTHRAE_GATEWAY_API_KEY) headers.Authorization = `Bearer ${env.SERYTHRAE_GATEWAY_API_KEY}`;
+
+  const sessionMessages = await buildSerythraeSessionMessages(env, input.threadId);
+  const chatBody = JSON.stringify({
+    messages: sessionMessages.length ? sessionMessages : [{ role: 'user', content: input.message }],
+    session_messages: sessionMessages.length ? sessionMessages : [{ role: 'user', content: input.message }],
+    session_id: input.threadId,
+    room: 'chat',
+    surface: 'haven',
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.thinking ? { thinking: true } : {}),
+    ...(input.image ? { image: input.image } : {}),
+  });
+  const chatUrl = gateway ? 'https://serythrae-gw/chat' : `${base}/chat`;
+  const res = await (gateway ? gateway.fetch(chatUrl, {
+    method: 'POST',
+    headers,
+    body: chatBody,
+  }) : fetch(chatUrl, {
+    method: 'POST',
+    headers,
+    body: chatBody,
+  }));
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Serythrae chat failed ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let currentEvent = '';
+  let fullContent = '';
+  let completed = false;
+  const toolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        currentEvent = '';
+        continue;
+      }
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+        continue;
+      }
+      if (!line.startsWith('data: ')) continue;
+
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') continue;
+
+      let parsed: any;
+      try { parsed = JSON.parse(data); } catch { continue; }
+
+      if (currentEvent === 'error') {
+        throw new Error(parsed.message || 'Serythrae chat error');
+      }
+      if (currentEvent === 'tool_call') {
+        toolResults.push({ name: parsed.name || 'tool_call', result: JSON.stringify(parsed.arguments || {}), server: base || 'serythrae-gw', ok: true });
+        continue;
+      }
+      if (currentEvent === 'tool_result') {
+        toolResults.push({ name: parsed.name || 'tool_result', result: typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result ?? ''), server: base || 'serythrae-gw', ok: true });
+        continue;
+      }
+      if (currentEvent === 'done') {
+        completed = true;
+        break;
+      }
+
+      const chunk = parsed.content || parsed.text || parsed.choices?.[0]?.delta?.content || '';
+      if (chunk && (currentEvent === 'message' || currentEvent === 'content' || !currentEvent)) {
+        fullContent += chunk;
+        await input.onChunk?.(chunk);
+      }
+    }
+    if (completed) break;
+  }
+
+  const content = fullContent.trim();
+  if (!content) throw new Error('Serythrae chat returned an empty reply');
+  return { content, model: input.model || 'serythrae', toolResults };
+}
+
 function toolNoticeForError(error: unknown): string {
   const errStr = String(error);
   let notice = 'Tools unavailable for this response. ';
@@ -1462,6 +1577,30 @@ async function generateChatReply(env: Env, input: {
   thinking?: boolean;
   onProgress?: (event: ChatProgressEvent) => void | Promise<void>;
 }): Promise<ChatReplyResult> {
+  if (input.provider === 'serythrae' && input.companionId === 1) {
+    let streamedContent = false;
+    const serythraeReply = await generateSerythraeChatReply(env, {
+      threadId: input.threadId,
+      message: input.message,
+      model: input.model,
+      image: input.image,
+      thinking: input.thinking,
+      onChunk: async (chunk) => {
+        streamedContent = true;
+        await input.onProgress?.({ type: 'chunk', content: chunk });
+      },
+    });
+    if (!streamedContent) await input.onProgress?.({ type: 'chunk', content: serythraeReply.content });
+    if (serythraeReply.toolResults.length > 0) {
+      await input.onProgress?.({ type: 'tools', results: serythraeReply.toolResults });
+    }
+    return {
+      content: serythraeReply.content,
+      model: serythraeReply.model,
+      toolResults: serythraeReply.toolResults,
+    };
+  }
+
   const chatMessages = await buildChatMessagesForThread(env, {
     threadId: input.threadId,
     companionId: input.companionId,
