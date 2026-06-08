@@ -62,6 +62,21 @@ export interface StreamEvent {
   emoji?: string;      // reaction emoji (type: 'reaction')
 }
 
+export interface ChatJob {
+  id?: string;
+  job_id?: string;
+  thread_id: string;
+  user_message_id: string;
+  companion_message_id?: string | null;
+  status: 'queued' | 'running' | 'complete' | 'failed';
+  error?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+}
+
 export interface ModelInfo {
   id: string;
   name: string;

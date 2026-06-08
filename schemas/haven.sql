@@ -50,6 +50,22 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
 
+-- Background chat jobs
+CREATE TABLE IF NOT EXISTS chat_jobs (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    user_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    companion_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'complete', 'failed')),
+    error TEXT,
+    model TEXT,
+    provider TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chat_jobs_thread ON chat_jobs(thread_id, created_at DESC);
+
 -- Memories
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

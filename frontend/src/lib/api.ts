@@ -2,7 +2,7 @@
  * Haven API client — talks to the worker
  */
 
-import type { Thread, Message, Companion, CompanionFile, Identity, ModelInfo } from './types';
+import type { Thread, Message, Companion, CompanionFile, Identity, ModelInfo, ChatJob } from './types';
 import { persistSet, persistRemove } from './storage';
 
 const DEFAULT_HAVEN_WORKER_URL = 'https://haven.lbourgon.workers.dev';
@@ -261,7 +261,7 @@ function serythraeModelsUrl(): string {
 }
 
 export function usingSerythraeBridge(): boolean {
-  return localStorage.getItem('haven-chat-backend') !== 'haven-local';
+  return localStorage.getItem('haven-chat-backend') === 'serythrae-bridge';
 }
 
 type SerythraeHistoryMessage = {
@@ -686,6 +686,33 @@ export async function* sendChat(
       } catch {}
     }
   }
+}
+
+export async function sendChatJob(
+  message: string,
+  threadId: string | null,
+  model: string,
+  provider: string,
+  image?: string,
+  thinking?: boolean,
+): Promise<ChatJob> {
+  const res = await safeFetch('/api/chat/jobs', {
+    method: 'POST',
+    headers: scopedHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      message,
+      threadId,
+      model,
+      provider,
+      ...(image ? { image } : {}),
+      ...(thinking ? { thinking: true } : {}),
+    }),
+  });
+  return parseJson<ChatJob>(res, '/api/chat/jobs');
+}
+
+export async function getChatJob(jobId: string): Promise<ChatJob> {
+  return get<ChatJob>(`/api/chat/jobs/${encodeURIComponent(jobId)}`);
 }
 
 async function looksLikeAppShell(res: Response): Promise<boolean> {

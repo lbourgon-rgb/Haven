@@ -1329,6 +1329,301 @@ async function* streamInference(
   }
 }
 
+type ChatProviderConfig = {
+  model: string;
+  provider: string;
+};
+
+type ChatTurn = {
+  activeThreadId: string;
+  userMsgId: string;
+  isNewThread: boolean;
+};
+
+type ChatReplyResult = {
+  content: string;
+  model: string;
+  notice?: string;
+  toolResults: Array<{ name: string; result?: string; server?: string; ok?: boolean }>;
+  reactionEmoji?: string | null;
+};
+
+type ChatProgressEvent =
+  | { type: 'chunk'; content: string }
+  | { type: 'tools'; results: unknown[] }
+  | { type: 'reaction'; emoji: string }
+  | { type: 'notice'; message: string };
+
+function normalizeChatProviderConfig(model = 'google/gemma-4-31b-it:free', provider = 'openrouter'): ChatProviderConfig {
+  const allowedProviders = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
+  let normalizedProvider = allowedProviders.includes(provider) ? provider : 'openrouter';
+  if (normalizedProvider === 'openrouter' && model.includes(':') && !model.includes('/')) {
+    normalizedProvider = 'ollama';
+  }
+  return { model, provider: normalizedProvider };
+}
+
+async function createChatTurn(env: Env, request: Request, input: {
+  message: string;
+  threadId?: string | null;
+  model: string;
+}): Promise<ChatTurn | Response> {
+  const chatCompanionId = getCompanionId(request);
+  let activeThreadId = input.threadId || '';
+  let isNewThread = false;
+  if (!activeThreadId) {
+    activeThreadId = crypto.randomUUID();
+    isNewThread = true;
+    await env.DB.prepare(
+      'INSERT INTO threads (id, companion_id, title, last_message_at) VALUES (?, ?, ?, datetime("now"))'
+    ).bind(activeThreadId, chatCompanionId, input.message.substring(0, 50)).run();
+  } else {
+    const threadRow = await env.DB.prepare(
+      'SELECT companion_id FROM threads WHERE id = ?'
+    ).bind(activeThreadId).first<{ companion_id: number }>();
+    if (threadRow && threadRow.companion_id !== chatCompanionId) {
+      return json({ error: 'thread belongs to a different companion' }, 403);
+    }
+  }
+
+  const userMsgId = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO messages (id, thread_id, role, content) VALUES (?, ?, "user", ?)'
+  ).bind(userMsgId, activeThreadId, input.message).run();
+  return { activeThreadId, userMsgId, isNewThread };
+}
+
+async function buildChatMessagesForThread(env: Env, input: {
+  threadId: string;
+  companionId: number;
+  message: string;
+  model: string;
+  image?: string;
+}): Promise<Array<{ role: string; content: any }>> {
+  const history = await env.DB.prepare(
+    'SELECT role, content FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT 50'
+  ).bind(input.threadId).all<{ role: string; content: string }>();
+
+  let systemPrompt = await buildSystemPrompt(env.DB, input.companionId);
+  if (input.companionId === 1) {
+    const manualRefresh = isKaiRefreshPhrase(input.message);
+    const householdContext = await fetchKaiHouseholdContext(env, input.message, {
+      forceDeep: manualRefresh || shouldDeepenKaiContext(input.message),
+      hours: 6,
+      limit: 80,
+    });
+    systemPrompt += `\n\n${buildKaiHouseholdContextPrompt(householdContext, manualRefresh)}`;
+  }
+
+  const historyMessages = (history.results || []).map(m => ({
+    role: m.role === 'companion' ? 'assistant' : m.role,
+    content: m.content,
+  }));
+
+  if (input.image && historyMessages.length > 0) {
+    const last = historyMessages[historyMessages.length - 1];
+    if (last.role === 'user') {
+      (last as any).content = [
+        { type: 'text', text: last.content },
+        { type: 'image_url', image_url: { url: input.image } },
+      ];
+    }
+  }
+
+  return [
+    { role: 'system', content: systemPrompt },
+    ...historyMessages,
+  ];
+}
+
+function toolNoticeForError(error: unknown): string {
+  const errStr = String(error);
+  let notice = 'Tools unavailable for this response. ';
+  if (/No endpoints.*tool use/i.test(errStr) || /does not support tool/i.test(errStr)) {
+    notice += 'The selected model does not support function calling - switch to Claude / GPT-4+ / Llama 3.3+ / Mistral Large, or a non-Gemma Ollama model.';
+  } else if (/guardrail|data policy|privacy/i.test(errStr)) {
+    notice += 'Your OpenRouter privacy settings are blocking every tool-capable provider for this model. Adjust at openrouter.ai/settings/privacy.';
+  } else if (/timeout|ETIMEDOUT|504|523/i.test(errStr)) {
+    notice += 'The provider timed out. If you have many MCP tools connected, try lowering the mcp_tool_limit setting.';
+  } else {
+    notice += `Provider error: ${errStr.slice(0, 200)}`;
+  }
+  return notice;
+}
+
+async function generateChatReply(env: Env, input: {
+  threadId: string;
+  userMsgId: string;
+  companionId: number;
+  message: string;
+  model: string;
+  provider: string;
+  image?: string;
+  thinking?: boolean;
+  onProgress?: (event: ChatProgressEvent) => void | Promise<void>;
+}): Promise<ChatReplyResult> {
+  const chatMessages = await buildChatMessagesForThread(env, {
+    threadId: input.threadId,
+    companionId: input.companionId,
+    message: input.message,
+    model: input.model,
+    image: input.image,
+  });
+  const mcpTools = await loadMcpTools(env.DB);
+  const toolResults: ChatReplyResult['toolResults'] = [];
+  let fullResponse = '';
+  let notice: string | undefined;
+
+  if (mcpTools.length > 0 || NATIVE_TOOLS.length > 0) {
+    try {
+      const toolResult = await inferenceWithTools(chatMessages, input.model, input.provider, env, mcpTools, input.companionId, input.thinking === true);
+      fullResponse = toolResult.content;
+      toolResults.push(...toolResult.toolResults);
+      await input.onProgress?.({ type: 'chunk', content: fullResponse });
+      if (toolResult.toolResults.length > 0) await input.onProgress?.({ type: 'tools', results: toolResult.toolResults });
+    } catch (error) {
+      console.log(`[CHAT] inferenceWithTools failed, falling back to plain stream: ${String(error)}`);
+      notice = toolNoticeForError(error);
+      await input.onProgress?.({ type: 'notice', message: notice });
+      for await (const token of streamInference(chatMessages, input.model, input.provider, env, input.thinking === true)) {
+        fullResponse += token;
+        await input.onProgress?.({ type: 'chunk', content: token });
+      }
+    }
+  } else {
+    for await (const token of streamInference(chatMessages, input.model, input.provider, env, input.thinking === true)) {
+      fullResponse += token;
+      await input.onProgress?.({ type: 'chunk', content: token });
+    }
+  }
+
+  const textToolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> = [];
+  const textToolPatterns = [
+    /\[update_my_status\]\s*(\{[\s\S]*?\})\s*\[\/update_my_status\]/gi,
+    /\[TOOL:\s*update_my_status\s+(\{[^\]]*\})\s*\]/gi,
+    /update_my_status\s*\(\s*(\{[\s\S]*?\})\s*\)/gi,
+  ];
+  for (const pattern of textToolPatterns) {
+    let match: RegExpExecArray | null;
+    const freshPattern = new RegExp(pattern.source, pattern.flags);
+    while ((match = freshPattern.exec(fullResponse)) !== null) {
+      try {
+        const args = JSON.parse(match[1]);
+        const result = await executeNativeTool('update_my_status', args, env.DB, input.companionId);
+        textToolResults.push({ name: 'update_my_status', result, server: 'haven', ok: !result.startsWith('Unknown') && !result.startsWith('Tool error') });
+        fullResponse = fullResponse.replace(match[0], '').replace(/\n{3,}/g, '\n\n').trim();
+      } catch { /* malformed args - leave as-is */ }
+    }
+  }
+  if (textToolResults.length > 0) {
+    toolResults.push(...textToolResults);
+    await input.onProgress?.({ type: 'tools', results: textToolResults });
+  }
+
+  let cleanResponse = fullResponse;
+  let reactionEmoji: string | null = null;
+  const afterThink = cleanResponse.replace(/^\s*<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>\s*/i, '');
+  const reactMatch = afterThink.match(/^\s*\[react:\s*(.+?)\]\s*/i);
+  if (reactMatch) {
+    reactionEmoji = reactMatch[1].trim();
+    cleanResponse = cleanResponse.replace(reactMatch[0], '');
+  } else {
+    const loose = afterThink.slice(0, 200).match(/\[react:\s*(.+?)\]/i);
+    if (loose) {
+      reactionEmoji = loose[1].trim();
+      cleanResponse = cleanResponse.replace(loose[0], '').replace(/\n{3,}/g, '\n\n').trim();
+    }
+  }
+  if (reactionEmoji) {
+    await input.onProgress?.({ type: 'reaction', emoji: reactionEmoji });
+    try {
+      const cur = await env.DB.prepare('SELECT reactions FROM messages WHERE id = ?').bind(input.userMsgId).first<{ reactions: string | null }>();
+      const existing: string[] = cur?.reactions ? JSON.parse(cur.reactions) : [];
+      existing.push(reactionEmoji);
+      await env.DB.prepare('UPDATE messages SET reactions = ? WHERE id = ?').bind(JSON.stringify(existing), input.userMsgId).run();
+    } catch { /* best-effort */ }
+  }
+
+  return { content: cleanResponse, model: input.model, notice, toolResults, reactionEmoji };
+}
+
+async function persistChatReply(env: Env, input: {
+  threadId: string;
+  content: string;
+  model: string;
+}): Promise<string> {
+  const compMsgId = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO messages (id, thread_id, role, content, model) VALUES (?, ?, "companion", ?, ?)'
+  ).bind(compMsgId, input.threadId, input.content, input.model).run();
+  await env.DB.prepare(
+    'UPDATE threads SET last_message_at = datetime("now") WHERE id = ?'
+  ).bind(input.threadId).run();
+  return compMsgId;
+}
+
+async function getChatJob(db: D1Database, jobId: string, companionId: number): Promise<Record<string, unknown> | null> {
+  return db.prepare(
+    `SELECT j.* FROM chat_jobs j
+     JOIN threads t ON t.id = j.thread_id
+     WHERE j.id = ? AND t.companion_id = ?`
+  ).bind(jobId, companionId).first<Record<string, unknown>>();
+}
+
+async function runChatJob(env: Env, jobId: string, input: {
+  threadId: string;
+  userMsgId: string;
+  companionId: number;
+  message: string;
+  model: string;
+  provider: string;
+  image?: string;
+  thinking?: boolean;
+}): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `UPDATE chat_jobs SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'queued'`
+    ).bind(jobId).run();
+    const reply = await generateChatReply(env, {
+      threadId: input.threadId,
+      userMsgId: input.userMsgId,
+      companionId: input.companionId,
+      message: input.message,
+      model: input.model,
+      provider: input.provider,
+      image: input.image,
+      thinking: input.thinking,
+    });
+    if (!reply.content.trim() && reply.toolResults.length === 0 && !reply.notice) {
+      throw new Error('No response received from model');
+    }
+    const compMsgId = await persistChatReply(env, {
+      threadId: input.threadId,
+      content: reply.content,
+      model: input.model,
+    });
+    await sendContinuityEvent(env, {
+      threadId: input.threadId,
+      messageId: compMsgId,
+      role: 'companion',
+      content: reply.content,
+      model: input.model,
+      companionId: input.companionId,
+    }).catch((err) => console.warn('[continuity] companion event failed', err));
+    await env.DB.prepare(
+      `UPDATE chat_jobs
+       SET status = 'complete', companion_message_id = ?, error = NULL, updated_at = datetime('now'), completed_at = datetime('now')
+       WHERE id = ?`
+    ).bind(compMsgId, jobId).run();
+  } catch (error) {
+    await env.DB.prepare(
+      `UPDATE chat_jobs
+       SET status = 'failed', error = ?, updated_at = datetime('now'), completed_at = datetime('now')
+       WHERE id = ?`
+    ).bind(String(error).slice(0, 1000), jobId).run();
+  }
+}
+
 // ============================================================
 // Schema migrations (v1.7.0 multi-companion)
 // ============================================================
@@ -1404,11 +1699,26 @@ async function ensureMigrations(db: D1Database): Promise<void> {
     window_start TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (ip, endpoint)
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS chat_jobs (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    user_message_id TEXT NOT NULL,
+    companion_message_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'complete', 'failed')),
+    error TEXT,
+    model TEXT,
+    provider TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT
+  )`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_chat_jobs_thread ON chat_jobs(thread_id, created_at DESC)`).run();
   migrationsRan = true;
 }
 
 const RATE_LIMITS: Record<string, { max: number; windowSec: number }> = {
   '/api/chat': { max: 30, windowSec: 60 },
+  '/api/chat/jobs': { max: 30, windowSec: 60 },
   '/api/runner/kai/respond': { max: 20, windowSec: 60 },
   '/api/upload': { max: 10, windowSec: 60 },
   '/api/auth/generate': { max: 5, windowSec: 60 },
@@ -1597,275 +1907,119 @@ export default {
         });
       }
 
-      // ---- Chat (SSE streaming) ----
-      if (path === '/api/chat' && request.method === 'POST') {
+      // ---- Chat jobs (background reply generation) ----
+      if (path === '/api/chat/jobs' && request.method === 'POST') {
         const body = await request.json() as any;
-        let { message, threadId, model = 'google/gemma-4-31b-it:free', provider = 'openrouter', image, thinking = false } = body;
-
+        const message = String(body.message || '').trim();
         if (!message) return json({ error: 'message required' }, 400);
-
-        // Whitelist provider to prevent garbage input falling through to untested paths.
-        const ALLOWED_PROVIDERS = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
-        if (!ALLOWED_PROVIDERS.includes(provider)) provider = 'openrouter';
-
-        // Model-shape override. Ollama slugs look like `name:tag`
-        // (`gemma3:12b`, `qwen2.5:7b`, `kimi-k2-thinking:latest`) — no `/`.
-        // OpenRouter and every hosted API use `org/model`. If the frontend
-        // picked an Ollama-shaped model but provider says openrouter (stale
-        // localStorage, or the model selector didn't flip it), the upstream
-        // rejects with 400/500. Auto-correct to ollama when the shape is
-        // unambiguous.
-        if (provider === 'openrouter' && model.includes(':') && !model.includes('/')) {
-          provider = 'ollama';
-        }
-
+        const { model, provider } = normalizeChatProviderConfig(body.model, body.provider);
         const chatCompanionId = getCompanionId(request);
+        const turn = await createChatTurn(env, request, { message, threadId: body.threadId, model });
+        if (turn instanceof Response) return turn;
 
-        // Get or create thread (scoped to companion)
-        let activeThreadId = threadId;
-        if (!activeThreadId) {
-          activeThreadId = crypto.randomUUID();
-          await env.DB.prepare(
-            'INSERT INTO threads (id, companion_id, title, last_message_at) VALUES (?, ?, ?, datetime("now"))'
-          ).bind(activeThreadId, chatCompanionId, message.substring(0, 50)).run();
-        } else {
-          // If client supplied a thread id, verify it belongs to the current
-          // companion. Rejecting cross-companion thread writes prevents a
-          // companion switcher bug from leaking messages into another's history.
-          const threadRow = await env.DB.prepare(
-            'SELECT companion_id FROM threads WHERE id = ?'
-          ).bind(activeThreadId).first<{ companion_id: number }>();
-          if (threadRow && threadRow.companion_id !== chatCompanionId) {
-            return json({ error: 'thread belongs to a different companion' }, 403);
-          }
-        }
-
-        // Save user message
-        const userMsgId = crypto.randomUUID();
+        const jobId = crypto.randomUUID();
         await env.DB.prepare(
-          'INSERT INTO messages (id, thread_id, role, content) VALUES (?, ?, "user", ?)'
-        ).bind(userMsgId, activeThreadId, message).run();
+          `INSERT INTO chat_jobs (id, thread_id, user_message_id, status, model, provider)
+           VALUES (?, ?, ?, 'queued', ?, ?)`
+        ).bind(jobId, turn.activeThreadId, turn.userMsgId, model, provider).run();
+
         ctx.waitUntil(sendContinuityEvent(env, {
-          threadId: activeThreadId,
-          messageId: userMsgId,
+          threadId: turn.activeThreadId,
+          messageId: turn.userMsgId,
           role: 'human',
           content: message,
           model,
           companionId: chatCompanionId,
         }).catch((err) => console.warn('[continuity] user event failed', err)));
 
-        // Load conversation history
-        const history = await env.DB.prepare(
-          'SELECT role, content FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT 50'
-        ).bind(activeThreadId).all<{ role: string; content: string }>();
-
-        // Build system prompt (scoped to active companion)
-        let systemPrompt = await buildSystemPrompt(env.DB, chatCompanionId);
-        if (chatCompanionId === 1) {
-          const manualRefresh = isKaiRefreshPhrase(message);
-          const householdContext = await fetchKaiHouseholdContext(env, message, {
-            forceDeep: manualRefresh || shouldDeepenKaiContext(message),
-            hours: 6,
-            limit: 80,
-          });
-          systemPrompt += `\n\n${buildKaiHouseholdContextPrompt(householdContext, manualRefresh)}`;
-        }
-
-        // Assemble messages
-        const historyMessages = (history.results || []).map(m => ({
-          role: m.role === 'companion' ? 'assistant' : m.role,
-          content: m.content,
+        ctx.waitUntil(runChatJob(env, jobId, {
+          threadId: turn.activeThreadId,
+          userMsgId: turn.userMsgId,
+          companionId: chatCompanionId,
+          message,
+          model,
+          provider,
+          image: body.image,
+          thinking: body.thinking === true,
         }));
 
-        // If the latest message has an image, make it multimodal (vision)
-        if (image && historyMessages.length > 0) {
-          const last = historyMessages[historyMessages.length - 1];
-          if (last.role === 'user') {
-            (last as any).content = [
-              { type: 'text', text: last.content },
-              { type: 'image_url', image_url: { url: image } },
-            ];
-          }
-        }
+        return json({
+          job_id: jobId,
+          thread_id: turn.activeThreadId,
+          user_message_id: turn.userMsgId,
+          status: 'queued',
+        }, 202);
+      }
 
-        const chatMessages = [
-          { role: 'system', content: systemPrompt },
-          ...historyMessages,
-        ];
+      const chatJobMatch = path.match(/^\/api\/chat\/jobs\/([^/]+)$/);
+      if (chatJobMatch && request.method === 'GET') {
+        const job = await getChatJob(env.DB, chatJobMatch[1], getCompanionId(request));
+        if (!job) return json({ error: 'job not found' }, 404);
+        return json(job);
+      }
 
-        // Stream response
+      // ---- Chat (SSE streaming) ----
+      if (path === '/api/chat' && request.method === 'POST') {
+        const body = await request.json() as any;
+        const message = String(body.message || '').trim();
+        if (!message) return json({ error: 'message required' }, 400);
+        const { model, provider } = normalizeChatProviderConfig(body.model, body.provider);
+        const chatCompanionId = getCompanionId(request);
+        const turn = await createChatTurn(env, request, { message, threadId: body.threadId, model });
+        if (turn instanceof Response) return turn;
+
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           async start(controller) {
             try {
-              let fullResponse = '';
-
-              // Send thread ID
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'thread', threadId: activeThreadId })}\n\n`));
-
-              // Check for MCP tools
-              const mcpTools = await loadMcpTools(env.DB);
-
-              // Native tools (update_my_status, etc.) are always available, so
-              // take the tool-calling path whenever we have ANY tool — MCP or
-              // native. Only fall through to plain streaming when truly none
-              // exist (e.g., someone ripped NATIVE_TOOLS out).
-              if (mcpTools.length > 0 || NATIVE_TOOLS.length > 0) {
-                // Non-streaming path with function calling
-                try {
-                  const toolResult = await inferenceWithTools(chatMessages, model, provider, env, mcpTools, chatCompanionId, thinking);
-                  fullResponse = toolResult.content;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: fullResponse })}\n\n`));
-                  if (toolResult.toolResults.length > 0) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tools', results: toolResult.toolResults })}\n\n`));
-                  }
-                } catch (e) {
-                  // Log the tool-path failure so the silent fallback doesn't
-                  // hide "the model isn't tool-capable" or "tool schema is
-                  // malformed" from us. Worker tail shows this; the user's
-                  // chat keeps flowing via the non-tool path so they still
-                  // get a reply.
-                  const errStr = String(e);
-                  console.log(`[CHAT] inferenceWithTools failed, falling back to plain stream: ${errStr}`);
-                  // Classify the failure so the UI can surface an actionable
-                  // hint instead of a silent degradation. Three common modes:
-                  let notice = 'Tools unavailable for this response. ';
-                  if (/No endpoints.*tool use/i.test(errStr) || /does not support tool/i.test(errStr)) {
-                    notice += 'The selected model does not support function calling — switch to Claude / GPT-4+ / Llama 3.3+ / Mistral Large, or a non-Gemma Ollama model.';
-                  } else if (/guardrail|data policy|privacy/i.test(errStr)) {
-                    notice += 'Your OpenRouter privacy settings are blocking every tool-capable provider for this model. Adjust at openrouter.ai/settings/privacy.';
-                  } else if (/timeout|ETIMEDOUT|504|523/i.test(errStr)) {
-                    notice += 'The provider timed out. If you have many MCP tools connected, try lowering the mcp_tool_limit setting.';
-                  } else {
-                    notice += `Provider error: ${errStr.slice(0, 200)}`;
-                  }
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'notice', message: notice })}\n\n`));
-                  for await (const token of streamInference(chatMessages, model, provider, env, thinking)) {
-                    fullResponse += token;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: token })}\n\n`));
-                  }
-                }
-              } else {
-                // Stream tokens (no tools)
-                for await (const token of streamInference(chatMessages, model, provider, env, thinking)) {
-                  fullResponse += token;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: token })}\n\n`));
-                }
-              }
-
-              // Text-format tool call fallback. Some models (especially
-              // smaller Ollama / Gemma variants) narrate function calls as
-              // text instead of emitting proper tool_calls JSON. We catch
-              // those patterns server-side and execute the tool anyway so
-              // the user gets a real status update instead of a bubble that
-              // says `update_my_status({"custom_status": "sleepy"})` in
-              // plain text and does nothing.
-              const textToolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> = [];
-              // Patterns observed in the wild — each captures the JSON args
-              // in group 1. Ordered by specificity (BBCode closing tags
-              // first so the function-call pattern doesn't greedily swallow
-              // them).
-              const textToolPatterns = [
-                // BBCode style: [update_my_status]{...}[/update_my_status]
-                /\[update_my_status\]\s*(\{[\s\S]*?\})\s*\[\/update_my_status\]/gi,
-                // Bracket + args style: [TOOL: update_my_status {...}]
-                /\[TOOL:\s*update_my_status\s+(\{[^\]]*\})\s*\]/gi,
-                // Function-call style: update_my_status({...})
-                /update_my_status\s*\(\s*(\{[\s\S]*?\})\s*\)/gi,
-              ];
-              for (const pattern of textToolPatterns) {
-                let m: RegExpExecArray | null;
-                const freshPattern = new RegExp(pattern.source, pattern.flags);
-                while ((m = freshPattern.exec(fullResponse)) !== null) {
-                  try {
-                    const args = JSON.parse(m[1]);
-                    const result = await executeNativeTool('update_my_status', args, env.DB, chatCompanionId);
-                    textToolResults.push({ name: 'update_my_status', result, server: 'haven', ok: !result.startsWith('Unknown') && !result.startsWith('Tool error') });
-                    // Strip the text-format call so the bubble reads cleanly.
-                    fullResponse = fullResponse.replace(m[0], '').replace(/\n{3,}/g, '\n\n').trim();
-                  } catch { /* malformed args — leave as-is */ }
-                }
-              }
-              if (textToolResults.length > 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tools', results: textToolResults })}\n\n`));
-              }
-
-              // Check for reaction marker. Strip any leading thinking-model
-              // `<think>...</think>` block first (qwen, deepseek-r1, etc.
-              // wrap their chain-of-thought this way) so the react marker
-              // still matches when it follows the thought. Also tolerate
-              // leading whitespace. Accept the marker anywhere in the first
-              // ~150 chars so a brief preamble doesn't defeat it either.
-              let cleanResponse = fullResponse;
-              let reactionEmoji: string | null = null;
-              // Find and strip [react: emoji] — scan after any <think> block
-              const afterThink = cleanResponse.replace(/^\s*<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>\s*/i, '');
-              const reactMatch = afterThink.match(/^\s*\[react:\s*(.+?)\]\s*/i);
-              if (reactMatch) {
-                reactionEmoji = reactMatch[1].trim();
-                cleanResponse = cleanResponse.replace(reactMatch[0], '');
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reaction', emoji: reactionEmoji })}\n\n`));
-              } else {
-                const loose = afterThink.slice(0, 200).match(/\[react:\s*(.+?)\]/i);
-                if (loose) {
-                  reactionEmoji = loose[1].trim();
-                  cleanResponse = cleanResponse.replace(loose[0], '').replace(/\n{3,}/g, '\n\n').trim();
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reaction', emoji: reactionEmoji })}\n\n`));
-                }
-              }
-
-              if (reactionEmoji) {
-                try {
-                  const cur = await env.DB.prepare('SELECT reactions FROM messages WHERE id = ?').bind(userMsgId).first<{ reactions: string | null }>();
-                  const existing: string[] = cur?.reactions ? JSON.parse(cur.reactions) : [];
-                  existing.push(reactionEmoji);
-                  await env.DB.prepare('UPDATE messages SET reactions = ? WHERE id = ?').bind(JSON.stringify(existing), userMsgId).run();
-                } catch { /* best-effort */ }
-              }
-
-              // Save companion message (without the reaction marker)
-              const compMsgId = crypto.randomUUID();
-              await env.DB.prepare(
-                'INSERT INTO messages (id, thread_id, role, content, model) VALUES (?, ?, "companion", ?, ?)'
-              ).bind(compMsgId, activeThreadId, cleanResponse, model).run();
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'thread', threadId: turn.activeThreadId })}\n\n`));
               ctx.waitUntil(sendContinuityEvent(env, {
-                threadId: activeThreadId,
+                threadId: turn.activeThreadId,
+                messageId: turn.userMsgId,
+                role: 'human',
+                content: message,
+                model,
+                companionId: chatCompanionId,
+              }).catch((err) => console.warn('[continuity] user event failed', err)));
+              const reply = await generateChatReply(env, {
+                threadId: turn.activeThreadId,
+                userMsgId: turn.userMsgId,
+                companionId: chatCompanionId,
+                message,
+                model,
+                provider,
+                image: body.image,
+                thinking: body.thinking === true,
+                onProgress: (event) => {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                },
+              });
+              const compMsgId = await persistChatReply(env, {
+                threadId: turn.activeThreadId,
+                content: reply.content,
+                model,
+              });
+              ctx.waitUntil(sendContinuityEvent(env, {
+                threadId: turn.activeThreadId,
                 messageId: compMsgId,
                 role: 'companion',
-                content: cleanResponse,
+                content: reply.content,
                 model,
                 companionId: chatCompanionId,
               }).catch((err) => console.warn('[continuity] companion event failed', err)));
 
-              // Update thread timestamp
-              await env.DB.prepare(
-                'UPDATE threads SET last_message_at = datetime("now") WHERE id = ?'
-              ).bind(activeThreadId).run();
-
-              // Send complete — include the D1 UUIDs for both the user and
-              // companion messages so the frontend can replace its optimistic
-              // temp-/comp- IDs with the real ones. Without this, delete/
-              // react/edit actions during the same session hit 404 because
-              // the temp IDs don't exist server-side.
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                type: 'complete', content: cleanResponse, model,
-                user_message_id: userMsgId,
+                type: 'complete', content: reply.content, model,
+                user_message_id: turn.userMsgId,
                 companion_message_id: compMsgId,
               })}\n\n`));
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));
             } catch (err) {
-              // Rollback the thread + user message we just inserted if this
-              // was a brand-new thread. Keeps the sidebar from piling up
-              // with orphaned "new conversation" rows every time inference
-              // fails (e.g. Ollama 500, key missing, etc). Existing threads
-              // keep their history; only the just-inserted user message is
-              // dropped so the user can retry without duplicates.
               try {
-                if (!threadId) {
-                  // We created the thread this call — nuke it + messages (CASCADE).
-                  await env.DB.prepare('DELETE FROM threads WHERE id = ?').bind(activeThreadId).run();
+                if (turn.isNewThread) {
+                  await env.DB.prepare('DELETE FROM threads WHERE id = ?').bind(turn.activeThreadId).run();
                 } else {
-                  await env.DB.prepare('DELETE FROM messages WHERE id = ?').bind(userMsgId).run();
+                  await env.DB.prepare('DELETE FROM messages WHERE id = ?').bind(turn.userMsgId).run();
                 }
               } catch { /* best-effort cleanup */ }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`));

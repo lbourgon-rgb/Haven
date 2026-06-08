@@ -10,7 +10,7 @@ export async function initNotifications() {
   permissionGranted = result.display === 'granted';
 }
 
-export async function notifyCompanionMessage(companionName: string, preview: string) {
+export async function notifyCompanionMessage(companionName: string, _preview: string) {
   if (!Capacitor.isNativePlatform() || !permissionGranted) return;
   // Don't notify if app is in foreground
   if (document.visibilityState === 'visible') return;
@@ -19,7 +19,7 @@ export async function notifyCompanionMessage(companionName: string, preview: str
     notifications: [
       {
         title: companionName,
-        body: preview.length > 100 ? preview.slice(0, 100) + '...' : preview,
+        body: 'replied',
         id: Date.now(),
         smallIcon: 'ic_launcher',
         largeIcon: 'ic_launcher',

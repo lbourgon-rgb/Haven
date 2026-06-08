@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Message, ToolCallRecord } from '../lib/types';
-import { getMessages, sendChat, getCompanionStatus, getUserStatus, deleteMessage, reactMessage, getThreads } from '../lib/api';
+import { getMessages, sendChat, sendChatJob, getChatJob, getCompanionStatus, getUserStatus, deleteMessage, reactMessage, getThreads } from '../lib/api';
 import { notifyCompanionMessage } from '../lib/notifications';
 import { getWallpaper as loadWallpaper, setWallpaper as saveWallpaper } from '../lib/wallpaper-store';
 import ChatMessages from './ChatMessages';
@@ -142,75 +142,41 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     let realCompanionId: string | undefined;
 
     try {
-      for await (const event of sendChat(persistedContent, threadId, selectedModel, selectedProvider, image, thinking, controller.signal, [...messages, userMsg])) {
-        switch (event.type) {
-          case 'thread':
-            if (event.threadId && !currentThreadId) {
-              currentThreadId = event.threadId;
-              onThreadCreated(event.threadId);
-            }
-            break;
-          case 'chunk':
-            if (event.content) {
-              fullContent += event.content;
-              setStreamingContent(fullContent);
-            }
-            break;
-          case 'tools': {
-            // Worker emits one event with all tool results at the end of a
-            // tool-calling inference round. We map each to a compact record
-            // (name + ok) for rendering as chips under the assistant bubble.
-            const results = (event.results as any[]) || [];
-            toolCalls = results.map(r => ({
-              name: r?.name || r?.tool_name || 'tool',
-              server: r?.server_name || r?.server,
-              ok: r?.ok !== false && !r?.error,
-            }));
-            break;
-          }
-          case 'reaction': {
-            const emoji = (event as any).emoji || '❤️';
-            setMessages(prev => {
-              for (let i = prev.length - 1; i >= 0; i--) {
-                if (prev[i].role === 'user') {
-                  const updated = [...prev];
-                  updated[i] = { ...updated[i], reactions: [...(updated[i].reactions || []), emoji] };
-                  return updated;
-                }
-              }
-              return prev;
-            });
-            break;
-          }
-          case 'notice':
-            // Worker emits this when tool inference falls back to plain
-            // streaming — e.g., model doesn't support function calling,
-            // privacy filter blocks tool providers, provider timeout.
-            if (typeof (event as any).message === 'string') {
-              notice = (event as any).message;
-            }
-            break;
-          case 'complete':
-            responseModel = event.model || selectedModel;
-            // Worker strips [react: emoji] / <think> blocks and sends the
-            // CLEAN text here. Prefer it over the chunk-accumulated content
-            // so the prefix doesn't stay visible in the bubble after
-            // streaming ends.
-            if (typeof event.content === 'string' && event.content.length > 0) {
-              fullContent = event.content;
-              setStreamingContent(fullContent);
-            }
-            // Capture real D1 UUIDs so delete/react/edit work in this
-            // session without waiting for a thread reload. Optimistic IDs
-            // (temp-*, comp-*) don't exist server-side.
-            if ((event as any).user_message_id) realUserId = (event as any).user_message_id;
-            if ((event as any).companion_message_id) realCompanionId = (event as any).companion_message_id;
-            break;
-          case 'error':
-            setError(event.message || 'Stream error');
-            break;
-        }
+      const job = await sendChatJob(persistedContent, threadId, selectedModel, selectedProvider, image, thinking);
+      currentThreadId = job.thread_id;
+      realUserId = job.user_message_id;
+      if (!threadId) onThreadCreated(job.thread_id);
+
+      setMessages((prev) => prev.map((m) =>
+        m.id === userMsg.id ? { ...m, id: job.user_message_id, thread_id: job.thread_id } : m
+      ));
+
+      let latestJob = job;
+      const jobId = job.job_id || job.id || '';
+      for (let attempt = 0; attempt < 90; attempt++) {
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        latestJob = await getChatJob(jobId);
+        if (latestJob.status === 'complete' || latestJob.status === 'failed') break;
+        await new Promise((resolve) => setTimeout(resolve, attempt < 8 ? 1000 : 2000));
       }
+
+      if (latestJob.status === 'failed') {
+        throw new Error(latestJob.error || 'Kai could not finish this reply.');
+      }
+      if (latestJob.status !== 'complete') {
+        setError('Kai is still replying server-side. You can leave this screen and reopen the thread in a bit.');
+        sendingRef.current = false;
+        setStreamingContent(null);
+        return;
+      }
+
+      realCompanionId = latestJob.companion_message_id || undefined;
+      responseModel = latestJob.model || selectedModel;
+      const freshMessages = await getMessages(latestJob.thread_id);
+      setMessages(Array.isArray(freshMessages) ? freshMessages : []);
+      const companionMsg = [...(freshMessages || [])].reverse().find((m) => m.id === latestJob.companion_message_id);
+      fullContent = companionMsg?.content || '';
+      if (fullContent) notifyCompanionMessage(companionName, fullContent);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') { sendingRef.current = false; return; }
       setError(err instanceof Error ? err.message : 'Failed to send message');
@@ -226,6 +192,9 @@ export default function ChatContainer({ threadId, onThreadCreated, companionName
     }
 
     setStreamingContent(null);
+    if (realCompanionId) {
+      return;
+    }
     if (fullContent || toolCalls.length > 0 || notice) {
       const companionMsg: Message = {
         id: realCompanionId || `comp-${Date.now()}`,

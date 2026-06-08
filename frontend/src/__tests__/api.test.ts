@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Test the version comparison logic (same as in version.ts)
 function isNewer(a: string, b: string): boolean {
@@ -117,5 +119,33 @@ describe('CORS origin validation', () => {
 
   it('falls back to * for null', () => {
     expect(getAllowedOrigin(null)).toBe('*');
+  });
+});
+
+describe('background chat job frontend contract', () => {
+  const apiSource = readFileSync(resolve(process.cwd(), 'src/lib/api.ts'), 'utf8');
+  const chatSource = readFileSync(resolve(process.cwd(), 'src/components/ChatContainer.tsx'), 'utf8');
+  const notificationSource = readFileSync(resolve(process.cwd(), 'src/lib/notifications.ts'), 'utf8');
+
+  it('defaults to Haven Worker chat unless Serythrae bridge is explicitly selected', () => {
+    expect(apiSource).toContain("localStorage.getItem('haven-chat-backend') === 'serythrae-bridge'");
+  });
+
+  it('exposes async chat job helpers', () => {
+    expect(apiSource).toContain('export async function sendChatJob');
+    expect(apiSource).toContain("safeFetch('/api/chat/jobs'");
+    expect(apiSource).toContain('export async function getChatJob');
+    expect(apiSource).toContain('/api/chat/jobs/${encodeURIComponent(jobId)}');
+  });
+
+  it('normal send uses job creation, polling, and message resync', () => {
+    expect(chatSource).toContain('sendChatJob(persistedContent');
+    expect(chatSource).toContain('latestJob = await getChatJob(jobId)');
+    expect(chatSource).toContain('const freshMessages = await getMessages(latestJob.thread_id)');
+  });
+
+  it('keeps companion notifications private by default', () => {
+    expect(notificationSource).toContain("body: 'replied'");
+    expect(notificationSource).not.toContain('preview.slice');
   });
 });
