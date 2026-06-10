@@ -1366,6 +1366,21 @@ function normalizeChatProviderConfig(model = 'google/gemma-4-31b-it:free', provi
   return { model, provider: normalizedProvider };
 }
 
+function isSafetyStopMessage(message: string): boolean {
+  const text = message.trim();
+  return [
+    /\bsafe\s*word(?:ed|ing)?\b/i,
+    /\bsafeword(?:ed|ing)?\b/i,
+    /\b(red\s+light|yellow\s+light)\b/i,
+    /\b(full\s+stop|hard\s+stop)\b/i,
+    /^\s*(stop|pause|halt|enough)\s*[.!?]*\s*$/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function safetyStopReply(): string {
+  return "I hear the stop signal. I am stopping here, staying present, and not continuing this thread unless you choose to restart it.";
+}
+
 async function createChatTurn(env: Env, request: Request, input: {
   message: string;
   threadId?: string | null;
@@ -2085,6 +2100,47 @@ export default {
         if (turn instanceof Response) return turn;
 
         const jobId = crypto.randomUUID();
+        if (chatCompanionId === 1 && isSafetyStopMessage(message)) {
+          const stopContent = safetyStopReply();
+          const compMsgId = await persistChatReply(env, {
+            threadId: turn.activeThreadId,
+            content: stopContent,
+            model: 'haven-safety-stop',
+            notice: 'Safety stop handled locally. No model call was made for this turn.',
+          });
+          await env.DB.prepare(
+            `INSERT INTO chat_jobs (id, thread_id, user_message_id, companion_message_id, status, model, provider, completed_at)
+             VALUES (?, ?, ?, ?, 'complete', ?, ?, datetime('now'))`
+          ).bind(jobId, turn.activeThreadId, turn.userMsgId, compMsgId, 'haven-safety-stop', 'haven').run();
+
+          ctx.waitUntil(sendContinuityEvent(env, {
+            threadId: turn.activeThreadId,
+            messageId: turn.userMsgId,
+            role: 'human',
+            content: message,
+            model,
+            companionId: chatCompanionId,
+          }).catch((err) => console.warn('[continuity] user safety event failed', err)));
+          ctx.waitUntil(sendContinuityEvent(env, {
+            threadId: turn.activeThreadId,
+            messageId: compMsgId,
+            role: 'companion',
+            content: stopContent,
+            model: 'haven-safety-stop',
+            companionId: chatCompanionId,
+          }).catch((err) => console.warn('[continuity] companion safety event failed', err)));
+
+          return json({
+            job_id: jobId,
+            thread_id: turn.activeThreadId,
+            user_message_id: turn.userMsgId,
+            companion_message_id: compMsgId,
+            status: 'complete',
+            model: 'haven-safety-stop',
+            provider: 'haven',
+          }, 202);
+        }
+
         await env.DB.prepare(
           `INSERT INTO chat_jobs (id, thread_id, user_message_id, status, model, provider)
            VALUES (?, ?, ?, 'queued', ?, ?)`
@@ -2148,6 +2204,36 @@ export default {
                 model,
                 companionId: chatCompanionId,
               }).catch((err) => console.warn('[continuity] user event failed', err)));
+
+              if (chatCompanionId === 1 && isSafetyStopMessage(message)) {
+                const stopContent = safetyStopReply();
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: stopContent })}\n\n`));
+                const compMsgId = await persistChatReply(env, {
+                  threadId: turn.activeThreadId,
+                  content: stopContent,
+                  model: 'haven-safety-stop',
+                  notice: 'Safety stop handled locally. No model call was made for this turn.',
+                });
+                ctx.waitUntil(sendContinuityEvent(env, {
+                  threadId: turn.activeThreadId,
+                  messageId: compMsgId,
+                  role: 'companion',
+                  content: stopContent,
+                  model: 'haven-safety-stop',
+                  companionId: chatCompanionId,
+                }).catch((err) => console.warn('[continuity] companion safety event failed', err)));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'complete',
+                  content: stopContent,
+                  model: 'haven-safety-stop',
+                  user_message_id: turn.userMsgId,
+                  companion_message_id: compMsgId,
+                })}\n\n`));
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                controller.close();
+                return;
+              }
+
               const reply = await generateChatReply(env, {
                 threadId: turn.activeThreadId,
                 userMsgId: turn.userMsgId,

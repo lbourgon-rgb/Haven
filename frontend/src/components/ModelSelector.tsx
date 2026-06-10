@@ -241,10 +241,10 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
         <div
           className="hide-scrollbar"
           style={{
-            position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+            position: 'fixed', top: '56px', right: '12px',
             background: 'var(--haven-surface)', border: '1px solid var(--haven-border)',
-            borderRadius: '10px', width: '260px', maxHeight: '350px', overflowY: 'scroll',
-            zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            borderRadius: '10px', width: 'min(320px, calc(100vw - 24px))', maxHeight: 'min(520px, calc(100vh - 88px))', overflowY: 'scroll',
+            zIndex: 2000, boxShadow: '0 12px 36px rgba(0,0,0,0.55)',
             WebkitOverflowScrolling: 'touch' as any, touchAction: 'pan-y',
             overscrollBehavior: 'contain',
           }}

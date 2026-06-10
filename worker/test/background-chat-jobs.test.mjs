@@ -22,6 +22,14 @@ describe('background chat jobs contract', () => {
     assert.match(source, /tool_calls: m\.tool_calls \? JSON\.parse\(m\.tool_calls\) : undefined/);
   });
 
+  it('short-circuits safety stop language without calling the model', () => {
+    assert.match(source, /function isSafetyStopMessage/);
+    assert.match(source, /function safetyStopReply/);
+    assert.match(source, /Safety stop handled locally\. No model call was made for this turn\./);
+    assert.match(source, /model: 'haven-safety-stop'/);
+    assert.match(source, /status: 'complete'/);
+  });
+
   it('exposes create and status endpoints for async chat jobs', () => {
     assert.match(source, /path === '\/api\/chat\/jobs' && request\.method === 'POST'/);
     assert.ok(source.includes("path.match(/^\\/api\\/chat\\/jobs\\/([^/]+)$/)"));
