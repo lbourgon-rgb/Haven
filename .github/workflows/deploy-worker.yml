@@ -67,6 +67,22 @@ jobs:
           [[r2_buckets]]
           binding = "FILES"
           bucket_name = "$HAVEN_R2_BUCKET_NAME"
+
+          [[services]]
+          binding = "CONTINUITY"
+          service = "continuity-worker"
+
+          [[services]]
+          binding = "SERYTHRAE_GATEWAY"
+          service = "serythrae-gw"
+          environment = "production"
+
+          [vars]
+          CONTINUITY_WORKER_URL = "https://continuity-worker.lbourgon.workers.dev"
+          NEXUS_GATEWAY_URL = "https://nexus-gateway.lbourgon.workers.dev"
+          SERYTHRAE_GATEWAY_URL = "https://serythrae-gw.lbourgon.workers.dev"
+          KAI_RUNNER_MODEL = "x-ai/grok-4.20"
+          KAI_RUNNER_PROVIDER = "openrouter"
           EOF
 
       - name: Deploy to Cloudflare
