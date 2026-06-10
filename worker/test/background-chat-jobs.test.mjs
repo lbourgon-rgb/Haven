@@ -42,9 +42,21 @@ describe('background chat jobs contract', () => {
     assert.match(source, /const hasSerythraeLine = !!env\.SERYTHRAE_GATEWAY \|\| !!env\.SERYTHRAE_GATEWAY_URL/);
     assert.match(source, /if \(input\.companionId === 1 && hasSerythraeLine\)/);
     assert.match(source, /SERYTHRAE_GATEWAY\?: Fetcher/);
-    assert.match(source, /gateway \? 'https:\/\/serythrae-gw\/chat' : `\$\{base\}\/chat`/);
+    assert.match(source, /gateway \? 'https:\/\/serythrae-gw\/kai\/respond' : `\$\{base\}\/kai\/respond`/);
     assert.match(source, /surface: 'haven'/);
     assert.match(source, /session_id: input\.threadId/);
+  });
+
+  it('runs Kai Discord runner turns through Haven transcript and Serythrae composer', () => {
+    assert.match(source, /function runnerThreadId/);
+    assert.match(source, /async function persistRunnerUserTurn/);
+    assert.match(source, /path === '\/api\/runner\/kai\/respond' && request\.method === 'POST'/);
+    assert.match(source, /const runnerThread = runnerThreadId/);
+    assert.match(source, /await persistRunnerUserTurn/);
+    assert.match(source, /await generateSerythraeChatReply\(env, \{/);
+    assert.match(source, /surface: body\.source \|\| 'discord'/);
+    assert.match(source, /const compMsgId = await persistChatReply/);
+    assert.match(source, /haven_companion_message_id: compMsgId/);
   });
 
   it('runs jobs in waitUntil and marks completion or failure without deleting the user message', () => {

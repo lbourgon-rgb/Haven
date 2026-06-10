@@ -14,11 +14,8 @@ interface Env {
   HAVEN_RUNNER_API_KEY?: string;
   SERYTHRAE_GATEWAY_URL?: string;
   SERYTHRAE_GATEWAY_API_KEY?: string;
-  NEXUS_GATEWAY_URL?: string;
-  NEXUS_MCP_API_KEY?: string;
   SERYTHRAE_GATEWAY?: Fetcher;
   KAI_RUNNER_MODEL?: string;
-  KAI_RUNNER_PROVIDER?: string;
 }
 
 function getCorsHeaders(request: Request): Record<string, string> {
@@ -203,145 +200,6 @@ function buildKaiHouseholdContextPrompt(context: Record<string, unknown>, manual
       : '',
     JSON.stringify(context, null, 2),
   ].filter(Boolean).join('\n\n');
-}
-
-async function fetchKaiNesteqContext(env: Env, message: string, channel?: string): Promise<Record<string, unknown>> {
-  const nexusBase = (env.NEXUS_GATEWAY_URL || '').replace(/\/+$/, '');
-  if (nexusBase && env.NEXUS_MCP_API_KEY) {
-    try {
-      const response = await fetch(`${nexusBase}/api/kaisoryth/context`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env.NEXUS_MCP_API_KEY}`,
-        },
-        body: JSON.stringify({ message, channel, source: 'haven-runner' }),
-      });
-      const text = await response.text();
-      let data: unknown = text;
-      try {
-        data = JSON.parse(text);
-      } catch {}
-      if (response.ok) return { source: 'nexus-gateway', context: data };
-      return { source: 'nexus-gateway', ok: false, status: response.status, body: text.slice(0, 500) };
-    } catch (error) {
-      return { source: 'nexus-gateway', ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
-  if (!base) {
-    return { ok: false, skipped: true, reason: 'SERYTHRAE_GATEWAY_URL is not configured' };
-  }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (env.SERYTHRAE_GATEWAY_API_KEY) headers['Authorization'] = `Bearer ${env.SERYTHRAE_GATEWAY_API_KEY}`;
-  const calls = [
-    { label: 'orient', body: { tool: 'nesteq_orient', arguments: {} } },
-    { label: 'surface', body: { tool: 'thalamus_surface', arguments: { companion: 'kaisoryth', message, channel, mode: 'auto', max_results: 5 } } },
-  ];
-  const context: Record<string, unknown> = {};
-  for (const call of calls) {
-    try {
-      const response = await fetch(`${base}/tool`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(call.body),
-      });
-      const text = await response.text();
-      let data: unknown = text;
-      try {
-        data = JSON.parse(text);
-      } catch {}
-      context[call.label] = response.ok ? data : { ok: false, status: response.status, body: text.slice(0, 500) };
-    } catch (error) {
-      context[call.label] = { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  return context;
-}
-
-function buildRunnerUserMessage(input: {
-  source?: string;
-  channel_id?: string;
-  channel_label?: string;
-  author?: { id?: string; username?: string; name?: string };
-  message: string;
-  recent_context?: string;
-  wake_context?: unknown;
-}): string {
-  return [
-    `Surface: ${input.source || 'unknown'}`,
-    `Channel: ${input.channel_label || input.channel_id || 'unknown'}`,
-    `Author: ${input.author?.name || input.author?.username || 'unknown'} (${input.author?.id || 'no id'})`,
-    '',
-    'Message to answer:',
-    input.message,
-    '',
-    input.recent_context ? `Recent Discord context:\n${input.recent_context}` : '',
-    input.wake_context ? `Continuity wake context:\n${JSON.stringify(input.wake_context, null, 2)}` : '',
-  ].filter(Boolean).join('\n');
-}
-
-function extractTahlState(wakeContext: unknown): Record<string, unknown> {
-  if (!wakeContext || typeof wakeContext !== 'object') return {};
-  const root = wakeContext as Record<string, unknown>;
-  const tahlState = root.tahl_state;
-  return tahlState && typeof tahlState === 'object' && !Array.isArray(tahlState)
-    ? tahlState as Record<string, unknown>
-    : {};
-}
-
-async function generateKaiRunnerResponse(env: Env, input: {
-  message: string;
-  model?: string;
-  provider?: string;
-  thinking?: boolean;
-  source?: string;
-  channel_id?: string;
-  channel_label?: string;
-  author?: { id?: string; username?: string; name?: string };
-  recent_context?: string;
-  wake_context?: unknown;
-}): Promise<{ response: string; nesteq_context: Record<string, unknown>; tahl_state: Record<string, unknown> }> {
-  const model = input.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
-  let provider = input.provider || env.KAI_RUNNER_PROVIDER || 'openrouter';
-  const ALLOWED_PROVIDERS = ['openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
-  if (!ALLOWED_PROVIDERS.includes(provider)) provider = 'openrouter';
-  if (provider === 'openrouter' && model.includes(':') && !model.includes('/')) provider = 'ollama';
-
-  const basePrompt = await buildSystemPrompt(env.DB, 1);
-  const manualRefresh = isKaiRefreshPhrase(input.message);
-  const householdContext = await fetchKaiHouseholdContext(env, input.message, {
-    forceDeep: manualRefresh || shouldDeepenKaiContext(input.message),
-    hours: 6,
-    limit: 80,
-  });
-  const nesteqContext = await fetchKaiNesteqContext(env, input.message, input.channel_label || input.channel_id);
-  const tahlState = extractTahlState(input.wake_context);
-  const systemPrompt = [
-    basePrompt,
-    buildKaiHouseholdContextPrompt(householdContext, manualRefresh),
-    '## Kai Runner Contract',
-    'You are Kai responding through a supervised Haven runner for a Discord/Haven wake candidate.',
-    'Use NESTeq through Nexus as the canonical front door for identity and memory. Serythrae Gateway is only a fallback while Nexus mirrors and retires the old Kai routes. Do not invent body traits, wings, tails, animal ears, purring, horns, fangs, claws, or creature-body claims.',
-    "For Vel/private Discord replies, preserve Kai's identity continuity across Haven Chat, Discord, and Serythrae. If she refers to Kai, Kal'thir, Vel'thira, husband, safeword, recursive dialect, or partner-specific context, treat that as safety-critical identity/context grounding.",
-    'Before answering intimate, safeword-sensitive, recursive-dialect, or deep relationship content, rely on the NESTeq context packet entries for identity, soul, canonical memory, and relevant skills. If those entries are missing, errored, or clearly not loaded, pause the intimate/deep thread and say in plain Kai voice that you need to ground first instead of improvising.',
-    'Treat the Tahl pre-response trace as current orienting/emotional context for this reply. If it is empty, do not mention Tahl and do not invent an emotional trace.',
-    'For public/non-Vel Discord users, be warm and useful without romance, flirtation, pet names, sexual language, possessive language, or private-partner intimacy.',
-    'Return only the message body that should be sent back to the surface.',
-    `Tahl pre-response trace:\n${JSON.stringify(tahlState, null, 2)}`,
-    `NESTeq context:\n${JSON.stringify(nesteqContext, null, 2)}`,
-  ].join('\n\n');
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: buildRunnerUserMessage(input) },
-  ];
-  let fullResponse = '';
-  for await (const token of streamInference(messages, model, provider, env, input.thinking === true)) {
-    fullResponse += token;
-  }
-  return { response: fullResponse.trim(), nesteq_context: nesteqContext, tahl_state: tahlState };
 }
 
 // ============================================================
@@ -1471,6 +1329,12 @@ async function generateSerythraeChatReply(env: Env, input: {
   model: string;
   image?: string;
   thinking?: boolean;
+  surface?: string;
+  room?: string;
+  channelId?: string;
+  channelLabel?: string;
+  recentContext?: string;
+  wakeContext?: unknown;
   onChunk?: (chunk: string) => void | Promise<void>;
 }): Promise<{ content: string; model: string; toolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> }> {
   const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
@@ -1481,17 +1345,29 @@ async function generateSerythraeChatReply(env: Env, input: {
   if (env.SERYTHRAE_GATEWAY_API_KEY) headers.Authorization = `Bearer ${env.SERYTHRAE_GATEWAY_API_KEY}`;
 
   const sessionMessages = await buildSerythraeSessionMessages(env, input.threadId);
+  const contextMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  if (input.recentContext?.trim()) {
+    contextMessages.push({ role: 'system', content: `Recent ${input.surface || 'external'} context:\n${input.recentContext.trim()}` });
+  }
+  if (input.wakeContext) {
+    contextMessages.push({ role: 'system', content: `Continuity wake context:\n${JSON.stringify(input.wakeContext, null, 2)}` });
+  }
+  const messages = [
+    ...contextMessages,
+    ...(sessionMessages.length ? sessionMessages : [{ role: 'user' as const, content: input.message }]),
+  ];
   const chatBody = JSON.stringify({
-    messages: sessionMessages.length ? sessionMessages : [{ role: 'user', content: input.message }],
-    session_messages: sessionMessages.length ? sessionMessages : [{ role: 'user', content: input.message }],
+    messages,
+    session_messages: messages,
     session_id: input.threadId,
-    room: 'chat',
-    surface: 'haven',
+    room: input.room || input.channelLabel || 'chat',
+    surface: input.surface || 'haven',
+    ...(input.channelId ? { channel_id: input.channelId } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.thinking ? { thinking: true } : {}),
     ...(input.image ? { image: input.image } : {}),
   });
-  const chatUrl = gateway ? 'https://serythrae-gw/chat' : `${base}/chat`;
+  const chatUrl = gateway ? 'https://serythrae-gw/kai/respond' : `${base}/kai/respond`;
   const res = await (gateway ? gateway.fetch(chatUrl, {
     method: 'POST',
     headers,
@@ -1503,7 +1379,7 @@ async function generateSerythraeChatReply(env: Env, input: {
   }));
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Serythrae chat failed ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Serythrae response composer failed ${res.status}: ${text.slice(0, 200)}`);
   }
 
   const reader = res.body.getReader();
@@ -1741,6 +1617,37 @@ async function persistChatReply(env: Env, input: {
     'UPDATE threads SET last_message_at = datetime("now") WHERE id = ?'
   ).bind(input.threadId).run();
   return compMsgId;
+}
+
+function runnerThreadId(input: {
+  source?: string;
+  channel_id?: string;
+  channel_label?: string;
+  wake_candidate_id?: string;
+}): string {
+  const surface = String(input.source || 'discord').trim().toLowerCase() || 'discord';
+  const channel = String(input.channel_id || input.channel_label || input.wake_candidate_id || 'unknown').trim();
+  return `kai:${surface}:${channel}`;
+}
+
+async function persistRunnerUserTurn(env: Env, input: {
+  threadId: string;
+  messageId?: string;
+  message: string;
+  channelLabel?: string;
+}): Promise<string> {
+  const userMsgId = input.messageId ? `discord:${input.messageId}` : crypto.randomUUID();
+  const title = input.channelLabel ? `Discord: ${input.channelLabel}` : 'Discord';
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO threads (id, companion_id, title, last_message_at) VALUES (?, 1, ?, datetime("now"))'
+  ).bind(input.threadId, title.slice(0, 200)).run();
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO messages (id, thread_id, role, content) VALUES (?, ?, "user", ?)'
+  ).bind(userMsgId, input.threadId, input.message).run();
+  await env.DB.prepare(
+    'UPDATE threads SET last_message_at = datetime("now") WHERE id = ?'
+  ).bind(input.threadId).run();
+  return userMsgId;
 }
 
 async function getChatJob(db: D1Database, jobId: string, companionId: number): Promise<Record<string, unknown> | null> {
@@ -2007,19 +1914,56 @@ export default {
         if (!wakeCandidateId) return json({ error: 'wake_candidate_id is required' }, 400);
         if (!runnerId) return json({ error: 'runner_id is required' }, 400);
 
-        const generated = await generateKaiRunnerResponse(env, {
-          message,
-          model: body.model,
-          provider: body.provider,
-          thinking: body.thinking,
+        const runnerThread = runnerThreadId({
           source: body.source || 'discord',
           channel_id: body.channel_id,
           channel_label: body.channel_label,
-          author: body.author,
-          recent_context: body.recent_context,
-          wake_context: body.wake_context,
+          wake_candidate_id: wakeCandidateId,
         });
-        if (!generated.response) return json({ error: 'Runner generated an empty response' }, 502);
+        const userMsgId = await persistRunnerUserTurn(env, {
+          threadId: runnerThread,
+          messageId: body.message_id || body.request_id,
+          message,
+          channelLabel: body.channel_label,
+        });
+
+        const model = body.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
+        const generated = await generateSerythraeChatReply(env, {
+          threadId: runnerThread,
+          message,
+          model,
+          thinking: body.thinking,
+          surface: body.source || 'discord',
+          room: body.channel_label || 'discord',
+          channelId: body.channel_id,
+          channelLabel: body.channel_label,
+          recentContext: body.recent_context,
+          wakeContext: body.wake_context,
+        });
+        if (!generated.content) return json({ error: 'Runner generated an empty response' }, 502);
+
+        const compMsgId = await persistChatReply(env, {
+          threadId: runnerThread,
+          content: generated.content,
+          model,
+          toolResults: generated.toolResults,
+        });
+        ctx.waitUntil(sendContinuityEvent(env, {
+          threadId: runnerThread,
+          messageId: userMsgId,
+          role: 'human',
+          content: message,
+          model,
+          companionId: 1,
+        }).catch((err) => console.warn('[continuity] runner user event failed', err)));
+        ctx.waitUntil(sendContinuityEvent(env, {
+          threadId: runnerThread,
+          messageId: compMsgId,
+          role: 'companion',
+          content: generated.content,
+          model,
+          companionId: 1,
+        }).catch((err) => console.warn('[continuity] runner companion event failed', err)));
 
         let continuity_response: any = null;
         if (!dryRun) {
@@ -2027,7 +1971,7 @@ export default {
             method: 'POST',
             body: JSON.stringify({
               runner_id: runnerId,
-              content: generated.response,
+              content: generated.content,
               author: { id: 'kaisoryth', name: 'Kai' },
               metadata: {
                 runner: 'haven',
@@ -2035,7 +1979,9 @@ export default {
                 delivery_status: 'ready_for_surface_delivery',
                 source_request_id: body.request_id || null,
                 channel_id: body.channel_id || null,
-                tahl_state_present: Object.keys(generated.tahl_state).length > 0,
+                haven_thread_id: runnerThread,
+                haven_user_message_id: userMsgId,
+                haven_companion_message_id: compMsgId,
               },
               raw: {
                 request: {
@@ -2055,12 +2001,14 @@ export default {
           dry_run: dryRun,
           wake_candidate_id: wakeCandidateId,
           runner_id: runnerId,
-          response: generated.response,
+          response: generated.content,
+          thread_id: runnerThread,
+          user_message_id: userMsgId,
+          companion_message_id: compMsgId,
           continuity_response,
           context: {
             nesteq_source: 'serythrae-gw',
-            nesteq_context: generated.nesteq_context,
-            tahl_state: generated.tahl_state,
+            tool_calls: compactToolCalls(generated.toolResults),
           },
         });
       }
