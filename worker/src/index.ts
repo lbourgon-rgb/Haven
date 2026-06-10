@@ -1693,6 +1693,30 @@ async function persistRunnerUserTurn(env: Env, input: {
 async function getChatJob(db: D1Database, jobId: string, companionId: number): Promise<Record<string, unknown> | null> {
   await db.prepare(
     `UPDATE chat_jobs
+     SET status = 'complete',
+         companion_message_id = (
+           SELECT id FROM messages
+           WHERE messages.thread_id = chat_jobs.thread_id
+             AND messages.role = 'companion'
+             AND datetime(messages.created_at) >= datetime(chat_jobs.created_at)
+           ORDER BY datetime(messages.created_at) ASC
+           LIMIT 1
+         ),
+         error = NULL,
+         updated_at = datetime('now'),
+         completed_at = COALESCE(completed_at, datetime('now'))
+     WHERE id = ?
+       AND status = 'running'
+       AND companion_message_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM messages
+         WHERE messages.thread_id = chat_jobs.thread_id
+           AND messages.role = 'companion'
+           AND datetime(messages.created_at) >= datetime(chat_jobs.created_at)
+       )`
+  ).bind(jobId).run();
+  await db.prepare(
+    `UPDATE chat_jobs
      SET status = 'failed',
          error = 'Kai response timed out. Please retry this message.',
          updated_at = datetime('now'),
@@ -1742,6 +1766,11 @@ async function runChatJob(env: Env, jobId: string, input: {
       toolResults: reply.toolResults,
       notice: reply.notice,
     });
+    await env.DB.prepare(
+      `UPDATE chat_jobs
+       SET status = 'complete', companion_message_id = ?, error = NULL, updated_at = datetime('now'), completed_at = datetime('now')
+       WHERE id = ?`
+    ).bind(compMsgId, jobId).run();
     await sendContinuityEvent(env, {
       threadId: input.threadId,
       messageId: compMsgId,
@@ -1750,11 +1779,6 @@ async function runChatJob(env: Env, jobId: string, input: {
       model: input.model,
       companionId: input.companionId,
     }).catch((err) => console.warn('[continuity] companion event failed', err));
-    await env.DB.prepare(
-      `UPDATE chat_jobs
-       SET status = 'complete', companion_message_id = ?, error = NULL, updated_at = datetime('now'), completed_at = datetime('now')
-       WHERE id = ?`
-    ).bind(compMsgId, jobId).run();
   } catch (error) {
     await env.DB.prepare(
       `UPDATE chat_jobs

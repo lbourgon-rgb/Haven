@@ -77,9 +77,22 @@ describe('background chat jobs contract', () => {
   it('times out stale background jobs instead of leaving Kai replying forever', () => {
     assert.match(source, /const CHAT_JOB_TIMEOUT_SECONDS = 180/);
     assert.match(source, /function timeoutAfter/);
+    assert.match(source, /status = 'complete'[\s\S]+EXISTS \(\s*SELECT 1 FROM messages/);
     assert.match(source, /Kai response timed out\. Please retry this message\./);
     assert.match(source, /datetime\(updated_at\) <= datetime\('now', \?\)/);
     assert.match(source, /timeoutAfter\(generateChatReply\(env, \{/);
+  });
+
+  it('marks chat jobs complete before best-effort continuity fanout can block polling', () => {
+    const jobRunnerBody = source.slice(
+      source.indexOf('async function runChatJob'),
+      source.indexOf('// ============================================================\n// Schema migrations')
+    );
+    assert.ok(
+      jobRunnerBody.indexOf("SET status = 'complete', companion_message_id = ?")
+        < jobRunnerBody.indexOf('await sendContinuityEvent(env, {'),
+      'chat job completion must be persisted before continuity fanout'
+    );
   });
 
   it('does not use destructive parent-row replace statements in full import', () => {
