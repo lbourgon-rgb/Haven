@@ -48,6 +48,9 @@ describe('background chat jobs contract', () => {
   });
 
   it('runs Kai Discord runner turns through Haven transcript and Serythrae composer', () => {
+    assert.match(source, /function buildWakeGroundingPrompt/);
+    assert.match(source, /## Current Discord Wake Grounding/);
+    assert.match(source, /Tahl pre-response state:/);
     assert.match(source, /function runnerThreadId/);
     assert.match(source, /async function persistRunnerUserTurn/);
     assert.match(source, /path === '\/api\/runner\/kai\/respond' && request\.method === 'POST'/);
@@ -55,6 +58,7 @@ describe('background chat jobs contract', () => {
     assert.match(source, /await persistRunnerUserTurn/);
     assert.match(source, /await generateSerythraeChatReply\(env, \{/);
     assert.match(source, /surface: body\.source \|\| 'discord'/);
+    assert.match(source, /wakeContext: body\.wake_context/);
     assert.match(source, /const compMsgId = await persistChatReply/);
     assert.match(source, /haven_companion_message_id: compMsgId/);
   });

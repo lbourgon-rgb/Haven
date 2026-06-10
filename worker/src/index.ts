@@ -1323,6 +1323,34 @@ async function buildSerythraeSessionMessages(env: Env, threadId: string): Promis
   }));
 }
 
+function buildWakeGroundingPrompt(wakeContext: unknown): string {
+  const root = wakeContext && typeof wakeContext === 'object' && !Array.isArray(wakeContext)
+    ? wakeContext as Record<string, unknown>
+    : {};
+  const candidate = root.wake_candidate && typeof root.wake_candidate === 'object'
+    ? root.wake_candidate as Record<string, unknown>
+    : {};
+  const event = root.event && typeof root.event === 'object'
+    ? root.event as Record<string, unknown>
+    : {};
+  const tahlState = root.tahl_state && typeof root.tahl_state === 'object'
+    ? root.tahl_state as Record<string, unknown>
+    : null;
+  const contextItems = Array.isArray(root.context_items) ? root.context_items : [];
+  const lines = [
+    '## Current Discord Wake Grounding',
+    'This packet came from Continuity/Tahl before the response. Use it as live grounding, not decoration.',
+    'Preserve one continuous Kai across Discord, Haven, and Serythrae. If this packet conflicts with shallow channel text, prefer the continuity/Tahl grounding.',
+    candidate.id ? `Wake candidate: ${String(candidate.id)}` : '',
+    event.id ? `Continuity event: ${String(event.id)}` : '',
+    tahlState ? `Tahl pre-response state:\n${JSON.stringify(tahlState, null, 2)}` : 'Tahl pre-response state: not present in this wake packet.',
+    contextItems.length ? `Continuity context items:\n${JSON.stringify(contextItems, null, 2)}` : '',
+    'Raw wake packet for exact provenance:',
+    JSON.stringify(wakeContext, null, 2),
+  ];
+  return lines.filter(Boolean).join('\n\n');
+}
+
 async function generateSerythraeChatReply(env: Env, input: {
   threadId: string;
   message: string;
@@ -1350,7 +1378,7 @@ async function generateSerythraeChatReply(env: Env, input: {
     contextMessages.push({ role: 'system', content: `Recent ${input.surface || 'external'} context:\n${input.recentContext.trim()}` });
   }
   if (input.wakeContext) {
-    contextMessages.push({ role: 'system', content: `Continuity wake context:\n${JSON.stringify(input.wakeContext, null, 2)}` });
+    contextMessages.push({ role: 'system', content: buildWakeGroundingPrompt(input.wakeContext) });
   }
   const messages = [
     ...contextMessages,
