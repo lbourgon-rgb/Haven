@@ -51,8 +51,10 @@ async function getAuthToken(db: D1Database): Promise<string | null> {
 }
 function invalidateAuthTokenCache() { _authToken = undefined; }
 
-async function ensureReactionsColumn(db: D1Database) {
+async function ensureMessageMetadataColumns(db: D1Database) {
   try { await db.prepare("ALTER TABLE messages ADD COLUMN reactions TEXT").run(); } catch { /* already exists */ }
+  try { await db.prepare("ALTER TABLE messages ADD COLUMN tool_calls TEXT").run(); } catch { /* already exists */ }
+  try { await db.prepare("ALTER TABLE messages ADD COLUMN notice TEXT").run(); } catch { /* already exists */ }
 }
 
 // Which companion the current request operates on. Frontend sends
@@ -1686,15 +1688,39 @@ async function generateChatReply(env: Env, input: {
   return { content: cleanResponse, model: input.model, notice, toolResults, reactionEmoji };
 }
 
+function compactToolCalls(results: ChatReplyResult['toolResults']): Array<{ name: string; server?: string; ok?: boolean }> {
+  const byKey = new Map<string, { name: string; server?: string; ok?: boolean }>();
+  for (const result of results || []) {
+    const name = String(result?.name || '').trim();
+    if (!name) continue;
+    const server = typeof result.server === 'string' && result.server.trim() ? result.server.trim() : undefined;
+    const key = `${server || ''}::${name}`;
+    const existing = byKey.get(key);
+    const ok = result.ok === false ? false : existing?.ok;
+    byKey.set(key, { name, ...(server ? { server } : {}), ...(ok === false ? { ok: false } : { ok: true }) });
+  }
+  return [...byKey.values()];
+}
+
 async function persistChatReply(env: Env, input: {
   threadId: string;
   content: string;
   model: string;
+  toolResults?: ChatReplyResult['toolResults'];
+  notice?: string;
 }): Promise<string> {
   const compMsgId = crypto.randomUUID();
+  const toolCalls = compactToolCalls(input.toolResults || []);
   await env.DB.prepare(
-    'INSERT INTO messages (id, thread_id, role, content, model) VALUES (?, ?, "companion", ?, ?)'
-  ).bind(compMsgId, input.threadId, input.content, input.model).run();
+    'INSERT INTO messages (id, thread_id, role, content, model, tool_calls, notice) VALUES (?, ?, "companion", ?, ?, ?, ?)'
+  ).bind(
+    compMsgId,
+    input.threadId,
+    input.content,
+    input.model,
+    toolCalls.length ? JSON.stringify(toolCalls) : null,
+    input.notice || null,
+  ).run();
   await env.DB.prepare(
     'UPDATE threads SET last_message_at = datetime("now") WHERE id = ?'
   ).bind(input.threadId).run();
@@ -1740,6 +1766,8 @@ async function runChatJob(env: Env, jobId: string, input: {
       threadId: input.threadId,
       content: reply.content,
       model: input.model,
+      toolResults: reply.toolResults,
+      notice: reply.notice,
     });
     await sendContinuityEvent(env, {
       threadId: input.threadId,
@@ -1832,7 +1860,7 @@ async function ensureMigrations(db: D1Database): Promise<void> {
   } catch (e) {
     console.log(`[MIGRATE] Error during v1.7 migration: ${e}`);
   }
-  await ensureReactionsColumn(db);
+  await ensureMessageMetadataColumns(db);
   await db.prepare(`CREATE TABLE IF NOT EXISTS rate_limits (
     ip TEXT NOT NULL, endpoint TEXT NOT NULL, count INTEGER DEFAULT 1,
     window_start TEXT DEFAULT (datetime('now')),
@@ -2137,6 +2165,8 @@ export default {
                 threadId: turn.activeThreadId,
                 content: reply.content,
                 model,
+                toolResults: reply.toolResults,
+                notice: reply.notice,
               });
               ctx.waitUntil(sendContinuityEvent(env, {
                 threadId: turn.activeThreadId,
@@ -2232,6 +2262,8 @@ export default {
         const parsed = (messages.results || []).map((m: any) => ({
           ...m,
           reactions: m.reactions ? JSON.parse(m.reactions) : undefined,
+          tool_calls: m.tool_calls ? JSON.parse(m.tool_calls) : undefined,
+          notice: m.notice || undefined,
         }));
         return json(parsed);
       }
@@ -2766,11 +2798,20 @@ export default {
 
       // ---- Import Message (bulk insert) ----
       if (path === '/api/import/message' && request.method === 'POST') {
-        const { thread_id, role, content, model, created_at } = await request.json() as any;
+        const { thread_id, role, content, model, created_at, tool_calls, notice } = await request.json() as any;
         const id = crypto.randomUUID();
         await env.DB.prepare(
-          'INSERT INTO messages (id, thread_id, role, content, model, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-        ).bind(id, thread_id, role === 'user' ? 'user' : 'companion', content, model || null, created_at || new Date().toISOString()).run();
+          'INSERT INTO messages (id, thread_id, role, content, model, tool_calls, notice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).bind(
+          id,
+          thread_id,
+          role === 'user' ? 'user' : 'companion',
+          content,
+          model || null,
+          tool_calls ? JSON.stringify(tool_calls) : null,
+          notice || null,
+          created_at || new Date().toISOString(),
+        ).run();
 
         // Update thread timestamp
         await env.DB.prepare(
@@ -2859,7 +2900,7 @@ export default {
         if (thread.companion_id !== cid) return json({ error: 'thread belongs to a different companion' }, 403);
 
         const messages = await env.DB.prepare(
-          'SELECT role, content, model, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC'
+          'SELECT id, role, content, model, tool_calls, notice, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC'
         ).bind(threadId).all();
 
         const companion = await env.DB.prepare('SELECT name FROM companion WHERE id = ?').bind(cid).first<{ name: string }>();
@@ -2873,6 +2914,8 @@ export default {
             role: m.role,
             content: m.content,
             model: m.model,
+            tool_calls: m.tool_calls ? JSON.parse(m.tool_calls) : undefined,
+            notice: m.notice || undefined,
             timestamp: m.created_at,
           })),
         };
@@ -2902,11 +2945,15 @@ export default {
         const threadData = [];
         for (const thread of (threads.results || []) as any[]) {
           const msgs = await env.DB.prepare(
-            'SELECT role, content, model, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC'
+            'SELECT id, role, content, model, tool_calls, notice, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC'
           ).bind(thread.id).all();
           threadData.push({
             ...thread,
-            messages: msgs.results || [],
+            messages: (msgs.results || []).map((m: any) => ({
+              ...m,
+              tool_calls: m.tool_calls ? JSON.parse(m.tool_calls) : undefined,
+              notice: m.notice || undefined,
+            })),
           });
         }
 
@@ -2972,7 +3019,16 @@ export default {
             `).bind(t.id, t.companion_id || 1, t.title, t.last_message_at, t.created_at || new Date().toISOString()).run();
             for (const m of (t.messages || [])) {
               const mid = m.id || crypto.randomUUID();
-              await env.DB.prepare('INSERT OR IGNORE INTO messages (id, thread_id, role, content, model, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(mid, t.id, m.role, m.content, m.model || null, m.created_at || new Date().toISOString()).run();
+              await env.DB.prepare('INSERT OR IGNORE INTO messages (id, thread_id, role, content, model, tool_calls, notice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+                mid,
+                t.id,
+                m.role,
+                m.content,
+                m.model || null,
+                m.tool_calls ? JSON.stringify(m.tool_calls) : null,
+                m.notice || null,
+                m.created_at || m.timestamp || new Date().toISOString(),
+              ).run();
             }
           } catch (e: any) { errors.push(`thread: ${e.message}`); }
         }

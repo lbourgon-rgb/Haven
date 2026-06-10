@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     model TEXT,
     reactions TEXT,
+    tool_calls TEXT,
+    notice TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);

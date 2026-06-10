@@ -14,6 +14,14 @@ describe('background chat jobs contract', () => {
     assert.match(source, /companion_message_id TEXT/);
   });
 
+  it('persists companion tool metadata so refreshed messages can render tool chips', () => {
+    assert.match(source, /ALTER TABLE messages ADD COLUMN tool_calls TEXT/);
+    assert.match(source, /ALTER TABLE messages ADD COLUMN notice TEXT/);
+    assert.match(source, /function compactToolCalls/);
+    assert.match(source, /INSERT INTO messages \(id, thread_id, role, content, model, tool_calls, notice\)/);
+    assert.match(source, /tool_calls: m\.tool_calls \? JSON\.parse\(m\.tool_calls\) : undefined/);
+  });
+
   it('exposes create and status endpoints for async chat jobs', () => {
     assert.match(source, /path === '\/api\/chat\/jobs' && request\.method === 'POST'/);
     assert.ok(source.includes("path.match(/^\\/api\\/chat\\/jobs\\/([^/]+)$/)"));
