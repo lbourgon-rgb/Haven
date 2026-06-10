@@ -1215,6 +1215,18 @@ type ChatProgressEvent =
   | { type: 'reaction'; emoji: string }
   | { type: 'notice'; message: string };
 
+const CHAT_JOB_TIMEOUT_SECONDS = 180;
+
+function timeoutAfter<T>(promise: Promise<T>, seconds: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${seconds}s`)), seconds * 1000);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function normalizeChatProviderConfig(model = 'google/gemma-4-31b-it:free', provider = 'openrouter'): ChatProviderConfig {
   const allowedProviders = ['serythrae', 'openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
   let normalizedProvider = allowedProviders.includes(provider) ? provider : 'openrouter';
@@ -1679,6 +1691,16 @@ async function persistRunnerUserTurn(env: Env, input: {
 }
 
 async function getChatJob(db: D1Database, jobId: string, companionId: number): Promise<Record<string, unknown> | null> {
+  await db.prepare(
+    `UPDATE chat_jobs
+     SET status = 'failed',
+         error = 'Kai response timed out. Please retry this message.',
+         updated_at = datetime('now'),
+         completed_at = datetime('now')
+     WHERE id = ?
+       AND status = 'running'
+       AND datetime(updated_at) <= datetime('now', ?)`
+  ).bind(jobId, `-${CHAT_JOB_TIMEOUT_SECONDS} seconds`).run();
   return db.prepare(
     `SELECT j.* FROM chat_jobs j
      JOIN threads t ON t.id = j.thread_id
@@ -1700,7 +1722,7 @@ async function runChatJob(env: Env, jobId: string, input: {
     await env.DB.prepare(
       `UPDATE chat_jobs SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'queued'`
     ).bind(jobId).run();
-    const reply = await generateChatReply(env, {
+    const reply = await timeoutAfter(generateChatReply(env, {
       threadId: input.threadId,
       userMsgId: input.userMsgId,
       companionId: input.companionId,
@@ -1709,7 +1731,7 @@ async function runChatJob(env: Env, jobId: string, input: {
       provider: input.provider,
       image: input.image,
       thinking: input.thinking,
-    });
+    }), CHAT_JOB_TIMEOUT_SECONDS, 'Kai response');
     if (!reply.content.trim() && reply.toolResults.length === 0 && !reply.notice) {
       throw new Error('No response received from model');
     }

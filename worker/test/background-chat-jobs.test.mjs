@@ -74,6 +74,14 @@ describe('background chat jobs contract', () => {
     assert.doesNotMatch(jobRunnerBody, /DELETE FROM messages/);
   });
 
+  it('times out stale background jobs instead of leaving Kai replying forever', () => {
+    assert.match(source, /const CHAT_JOB_TIMEOUT_SECONDS = 180/);
+    assert.match(source, /function timeoutAfter/);
+    assert.match(source, /Kai response timed out\. Please retry this message\./);
+    assert.match(source, /datetime\(updated_at\) <= datetime\('now', \?\)/);
+    assert.match(source, /timeoutAfter\(generateChatReply\(env, \{/);
+  });
+
   it('does not use destructive parent-row replace statements in full import', () => {
     const fullImportBody = source.slice(
       source.indexOf("'/api/import/full'"),
