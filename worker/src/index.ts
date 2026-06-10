@@ -2967,7 +2967,7 @@ export default {
       // ---- Export Thread (verified against active companion) ----
       if (path.startsWith('/api/export/thread/') && request.method === 'GET') {
         const cid = getCompanionId(request);
-        const threadId = path.split('/')[4];
+        const threadId = decodeURIComponent(path.split('/').slice(4).join('/'));
         const thread = await env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<any>();
         if (!thread) return json({ error: 'Thread not found' }, 404);
         if (thread.companion_id !== cid) return json({ error: 'thread belongs to a different companion' }, 403);
