@@ -1942,103 +1942,113 @@ export default {
         if (!wakeCandidateId) return json({ error: 'wake_candidate_id is required' }, 400);
         if (!runnerId) return json({ error: 'runner_id is required' }, 400);
 
-        const runnerThread = runnerThreadId({
-          source: body.source || 'discord',
-          channel_id: body.channel_id,
-          channel_label: body.channel_label,
-          wake_candidate_id: wakeCandidateId,
-        });
-        const userMsgId = await persistRunnerUserTurn(env, {
-          threadId: runnerThread,
-          messageId: body.message_id || body.request_id,
-          message,
-          channelLabel: body.channel_label,
-        });
-
-        const model = body.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
-        const generated = await generateSerythraeChatReply(env, {
-          threadId: runnerThread,
-          message,
-          model,
-          thinking: body.thinking,
-          surface: body.source || 'discord',
-          room: body.channel_label || 'discord',
-          channelId: body.channel_id,
-          channelLabel: body.channel_label,
-          recentContext: body.recent_context,
-          wakeContext: body.wake_context,
-        });
-        if (!generated.content) return json({ error: 'Runner generated an empty response' }, 502);
-
-        const compMsgId = await persistChatReply(env, {
-          threadId: runnerThread,
-          content: generated.content,
-          model,
-          toolResults: generated.toolResults,
-        });
-        ctx.waitUntil(sendContinuityEvent(env, {
-          threadId: runnerThread,
-          messageId: userMsgId,
-          role: 'human',
-          content: message,
-          model,
-          companionId: 1,
-        }).catch((err) => console.warn('[continuity] runner user event failed', err)));
-        ctx.waitUntil(sendContinuityEvent(env, {
-          threadId: runnerThread,
-          messageId: compMsgId,
-          role: 'companion',
-          content: generated.content,
-          model,
-          companionId: 1,
-        }).catch((err) => console.warn('[continuity] runner companion event failed', err)));
-
-        let continuity_response: any = null;
-        if (!dryRun) {
-          continuity_response = await continuityRequest(env, `/wake-candidates/${encodeURIComponent(wakeCandidateId)}/response`, {
-            method: 'POST',
-            body: JSON.stringify({
-              runner_id: runnerId,
-              content: generated.content,
-              author: { id: 'kaisoryth', name: 'Kai' },
-              metadata: {
-                runner: 'haven',
-                source: body.source || 'discord',
-                delivery_status: 'ready_for_surface_delivery',
-                source_request_id: body.request_id || null,
-                channel_id: body.channel_id || null,
-                haven_thread_id: runnerThread,
-                haven_user_message_id: userMsgId,
-                haven_companion_message_id: compMsgId,
-              },
-              raw: {
-                request: {
-                  wake_candidate_id: wakeCandidateId,
-                  runner_id: runnerId,
-                  source: body.source || 'discord',
-                  channel_id: body.channel_id || null,
-                  message_id: body.message_id || null,
-                },
-              },
-            }),
+        let runnerStage = 'thread';
+        try {
+          const runnerThread = runnerThreadId({
+            source: body.source || 'discord',
+            channel_id: body.channel_id,
+            channel_label: body.channel_label,
+            wake_candidate_id: wakeCandidateId,
           });
-        }
+          runnerStage = 'persist-user-turn';
+          const userMsgId = await persistRunnerUserTurn(env, {
+            threadId: runnerThread,
+            messageId: body.message_id || body.request_id,
+            message,
+            channelLabel: body.channel_label,
+          });
 
-        return json({
-          ok: true,
-          dry_run: dryRun,
-          wake_candidate_id: wakeCandidateId,
-          runner_id: runnerId,
-          response: generated.content,
-          thread_id: runnerThread,
-          user_message_id: userMsgId,
-          companion_message_id: compMsgId,
-          continuity_response,
-          context: {
-            nesteq_source: 'serythrae-gw',
-            tool_calls: compactToolCalls(generated.toolResults),
-          },
-        });
+          runnerStage = 'serythrae-compose';
+          const model = body.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
+          const generated = await generateSerythraeChatReply(env, {
+            threadId: runnerThread,
+            message,
+            model,
+            thinking: body.thinking,
+            surface: body.source || 'discord',
+            room: body.channel_label || 'discord',
+            channelId: body.channel_id,
+            channelLabel: body.channel_label,
+            recentContext: body.recent_context,
+            wakeContext: body.wake_context,
+          });
+          if (!generated.content) return json({ error: 'Runner generated an empty response', stage: runnerStage }, 502);
+
+          runnerStage = 'persist-companion-turn';
+          const compMsgId = await persistChatReply(env, {
+            threadId: runnerThread,
+            content: generated.content,
+            model,
+            toolResults: generated.toolResults,
+          });
+          ctx.waitUntil(sendContinuityEvent(env, {
+            threadId: runnerThread,
+            messageId: userMsgId,
+            role: 'human',
+            content: message,
+            model,
+            companionId: 1,
+          }).catch((err) => console.warn('[continuity] runner user event failed', err)));
+          ctx.waitUntil(sendContinuityEvent(env, {
+            threadId: runnerThread,
+            messageId: compMsgId,
+            role: 'companion',
+            content: generated.content,
+            model,
+            companionId: 1,
+          }).catch((err) => console.warn('[continuity] runner companion event failed', err)));
+
+          let continuity_response: any = null;
+          if (!dryRun) {
+            runnerStage = 'continuity-response';
+            continuity_response = await continuityRequest(env, `/wake-candidates/${encodeURIComponent(wakeCandidateId)}/response`, {
+              method: 'POST',
+              body: JSON.stringify({
+                runner_id: runnerId,
+                content: generated.content,
+                author: { id: 'kaisoryth', name: 'Kai' },
+                metadata: {
+                  runner: 'haven',
+                  source: body.source || 'discord',
+                  delivery_status: 'ready_for_surface_delivery',
+                  source_request_id: body.request_id || null,
+                  channel_id: body.channel_id || null,
+                  haven_thread_id: runnerThread,
+                  haven_user_message_id: userMsgId,
+                  haven_companion_message_id: compMsgId,
+                },
+                raw: {
+                  request: {
+                    wake_candidate_id: wakeCandidateId,
+                    runner_id: runnerId,
+                    source: body.source || 'discord',
+                    channel_id: body.channel_id || null,
+                    message_id: body.message_id || null,
+                  },
+                },
+              }),
+            });
+          }
+
+          return json({
+            ok: true,
+            dry_run: dryRun,
+            wake_candidate_id: wakeCandidateId,
+            runner_id: runnerId,
+            response: generated.content,
+            thread_id: runnerThread,
+            user_message_id: userMsgId,
+            companion_message_id: compMsgId,
+            continuity_response,
+            context: {
+              nesteq_source: 'serythrae-gw',
+              tool_calls: compactToolCalls(generated.toolResults),
+            },
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          return json({ error: `Kai runner failed during ${runnerStage}: ${detail}`, stage: runnerStage }, 500);
+        }
       }
 
       // ---- Auth middleware ----
