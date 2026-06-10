@@ -36,10 +36,11 @@ describe('background chat jobs contract', () => {
     assert.match(source, /return json\(\{\s*job_id: jobId,\s*thread_id: turn\.activeThreadId,\s*user_message_id: turn\.userMsgId,\s*status: 'queued'/s);
   });
 
-  it('keeps Kai chat jobs on the Serythrae provider lane when selected', () => {
+  it('keeps Kai chat jobs on the Serythrae lane regardless of selected provider', () => {
     assert.match(source, /const allowedProviders = \['serythrae', 'openrouter'/);
     assert.match(source, /async function generateSerythraeChatReply/);
-    assert.match(source, /if \(input\.provider === 'serythrae' && input\.companionId === 1\)/);
+    assert.match(source, /const hasSerythraeLine = !!env\.SERYTHRAE_GATEWAY \|\| !!env\.SERYTHRAE_GATEWAY_URL/);
+    assert.match(source, /if \(input\.companionId === 1 && hasSerythraeLine\)/);
     assert.match(source, /SERYTHRAE_GATEWAY\?: Fetcher/);
     assert.match(source, /gateway \? 'https:\/\/serythrae-gw\/chat' : `\$\{base\}\/chat`/);
     assert.match(source, /surface: 'haven'/);

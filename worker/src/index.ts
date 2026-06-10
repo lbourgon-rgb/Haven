@@ -1594,7 +1594,8 @@ async function generateChatReply(env: Env, input: {
   thinking?: boolean;
   onProgress?: (event: ChatProgressEvent) => void | Promise<void>;
 }): Promise<ChatReplyResult> {
-  if (input.provider === 'serythrae' && input.companionId === 1) {
+  const hasSerythraeLine = !!env.SERYTHRAE_GATEWAY || !!env.SERYTHRAE_GATEWAY_URL;
+  if (input.companionId === 1 && hasSerythraeLine) {
     let streamedContent = false;
     const serythraeReply = await generateSerythraeChatReply(env, {
       threadId: input.threadId,
