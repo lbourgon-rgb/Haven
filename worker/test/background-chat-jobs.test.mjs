@@ -51,6 +51,8 @@ describe('background chat jobs contract', () => {
     assert.match(source, /function buildWakeGroundingPrompt/);
     assert.match(source, /## Current Discord Wake Grounding/);
     assert.match(source, /Tahl pre-response state:/);
+    assert.match(source, /Identity and relationship grounding can correct drift, but the newest Discord\/Haven message is the active request\./);
+    assert.doesNotMatch(source, /prefer the continuity\/Tahl grounding/);
     assert.match(source, /function runnerThreadId/);
     assert.match(source, /async function persistRunnerUserTurn/);
     assert.match(source, /path === '\/api\/runner\/kai\/respond' && request\.method === 'POST'/);
@@ -61,6 +63,27 @@ describe('background chat jobs contract', () => {
     assert.match(source, /wakeContext: body\.wake_context/);
     assert.match(source, /const compMsgId = await persistChatReply/);
     assert.match(source, /haven_companion_message_id: compMsgId/);
+  });
+
+  it('places current-turn priority after grounding and before transcript history', () => {
+    const composerBody = source.slice(
+      source.indexOf('async function generateSerythraeChatReply'),
+      source.indexOf('function toolNoticeForError')
+    );
+    assert.match(source, /function buildCurrentTurnPriorityPrompt/);
+    assert.match(source, /## Current Turn Priority/);
+    assert.match(source, /Answer the newest user message first\./);
+    assert.match(source, /<current_user_message>\\n\$\{message\}\\n<\/current_user_message>/);
+    assert.ok(
+      composerBody.indexOf('buildWakeGroundingPrompt(input.wakeContext)')
+        < composerBody.indexOf('buildCurrentTurnPriorityPrompt(input.message)'),
+      'wake grounding should be added before current-turn priority'
+    );
+    assert.ok(
+      composerBody.indexOf('buildCurrentTurnPriorityPrompt(input.message)')
+        < composerBody.indexOf('...(sessionMessages.length ? sessionMessages'),
+      'current-turn priority should be added before transcript history'
+    );
   });
 
   it('runs jobs in waitUntil and marks completion or failure without deleting the user message', () => {

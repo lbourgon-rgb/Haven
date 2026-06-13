@@ -125,7 +125,9 @@ describe('CORS origin validation', () => {
 describe('background chat job frontend contract', () => {
   const apiSource = readFileSync(resolve(process.cwd(), 'src/lib/api.ts'), 'utf8');
   const chatSource = readFileSync(resolve(process.cwd(), 'src/components/ChatContainer.tsx'), 'utf8');
+  const modelSource = readFileSync(resolve(process.cwd(), 'src/components/ModelSelector.tsx'), 'utf8');
   const notificationSource = readFileSync(resolve(process.cwd(), 'src/lib/notifications.ts'), 'utf8');
+  const cssSource = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
 
   it('defaults to Haven Worker chat unless Serythrae bridge is explicitly selected', () => {
     expect(apiSource).toContain("localStorage.getItem('haven-chat-backend') === 'serythrae-bridge'");
@@ -147,5 +149,14 @@ describe('background chat job frontend contract', () => {
   it('keeps companion notifications private by default', () => {
     expect(notificationSource).toContain("body: 'replied'");
     expect(notificationSource).not.toContain('preview.slice');
+  });
+
+  it('keeps the model picker above the mobile composer', () => {
+    expect(modelSource).toContain('className="haven-model-trigger"');
+    expect(modelSource).toContain('className="hide-scrollbar haven-model-menu"');
+    expect(cssSource).toContain('.haven-model-menu');
+    expect(cssSource).toContain('bottom: calc(88px + env(safe-area-inset-bottom))');
+    expect(cssSource).toContain('height: calc(100dvh - 162px - env(safe-area-inset-bottom))');
+    expect(cssSource).toContain('max-height: none');
   });
 });

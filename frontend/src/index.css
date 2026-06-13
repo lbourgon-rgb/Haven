@@ -262,6 +262,16 @@ button {
   color: rgba(10, 10, 10, 0.48);
 }
 
+.haven-model-menu {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  z-index: 2000;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 88px));
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+}
+
 .haven-thread-scroll {
   background: rgba(251, 250, 246, 0.16);
 }
@@ -320,6 +330,22 @@ button {
 
   .haven-chat-header [style*="flex: 1"] {
     flex: 0.2 !important;
+  }
+
+  .haven-model-trigger {
+    max-width: 118px !important;
+    min-height: 34px;
+  }
+
+  .haven-model-menu {
+    top: 74px;
+    right: 8px;
+    bottom: calc(88px + env(safe-area-inset-bottom));
+    width: min(320px, calc(100vw - 16px));
+    height: calc(100vh - 162px - env(safe-area-inset-bottom));
+    height: calc(100dvh - 162px - env(safe-area-inset-bottom));
+    min-height: 180px;
+    max-height: none;
   }
 
   .haven-message-row {

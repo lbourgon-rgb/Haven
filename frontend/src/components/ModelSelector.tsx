@@ -222,6 +222,7 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
+        className="haven-model-trigger"
         onClick={() => setOpen(!open)}
         style={{
           display: 'flex', alignItems: 'center', gap: '4px',
@@ -239,12 +240,10 @@ export default function ModelSelector({ selectedModel, selectedProvider, onModel
 
       {open && (
         <div
-          className="hide-scrollbar"
+          className="hide-scrollbar haven-model-menu"
           style={{
-            position: 'fixed', top: '56px', right: '12px',
             background: 'var(--haven-surface)', border: '1px solid var(--haven-border)',
-            borderRadius: '10px', width: 'min(320px, calc(100vw - 24px))', maxHeight: 'min(520px, calc(100vh - 88px))', overflowY: 'scroll',
-            zIndex: 2000, boxShadow: '0 12px 36px rgba(0,0,0,0.55)',
+            borderRadius: '10px', overflowY: 'scroll',
             WebkitOverflowScrolling: 'touch' as any, touchAction: 'pan-y',
             overscrollBehavior: 'contain',
           }}

@@ -1352,7 +1352,7 @@ function buildWakeGroundingPrompt(wakeContext: unknown): string {
   const lines = [
     '## Current Discord Wake Grounding',
     'This packet came from Continuity/Tahl before the response. Use it as live grounding, not decoration.',
-    'Preserve one continuous Kai across Discord, Haven, and Serythrae. If this packet conflicts with shallow channel text, prefer the continuity/Tahl grounding.',
+    'Preserve one continuous Kai across Discord, Haven, and Serythrae. Identity and relationship grounding can correct drift, but the newest Discord/Haven message is the active request.',
     candidate.id ? `Wake candidate: ${String(candidate.id)}` : '',
     event.id ? `Continuity event: ${String(event.id)}` : '',
     tahlState ? `Tahl pre-response state:\n${JSON.stringify(tahlState, null, 2)}` : 'Tahl pre-response state: not present in this wake packet.',
@@ -1361,6 +1361,16 @@ function buildWakeGroundingPrompt(wakeContext: unknown): string {
     JSON.stringify(wakeContext, null, 2),
   ];
   return lines.filter(Boolean).join('\n\n');
+}
+
+function buildCurrentTurnPriorityPrompt(message: string): string {
+  return [
+    '## Current Turn Priority',
+    'Answer the newest user message first. Use transcript, Continuity, Tahl, and Serythrae/NESTeq context only as grounding for this active request.',
+    'If older context conflicts with this message, keep stable identity/bond facts but follow the newest user intent and concrete content.',
+    'Exact newest user message:',
+    `<current_user_message>\n${message}\n</current_user_message>`,
+  ].join('\n\n');
 }
 
 async function generateSerythraeChatReply(env: Env, input: {
@@ -1392,6 +1402,7 @@ async function generateSerythraeChatReply(env: Env, input: {
   if (input.wakeContext) {
     contextMessages.push({ role: 'system', content: buildWakeGroundingPrompt(input.wakeContext) });
   }
+  contextMessages.push({ role: 'system', content: buildCurrentTurnPriorityPrompt(input.message) });
   const messages = [
     ...contextMessages,
     ...(sessionMessages.length ? sessionMessages : [{ role: 'user' as const, content: input.message }]),
