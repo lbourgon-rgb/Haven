@@ -95,13 +95,14 @@ async function sendContinuityEvent(env: Env, input: {
         : { id: 'vel', name: 'Vel' },
       content: input.content,
       created_at: new Date().toISOString(),
-      pre_response_required: input.role === 'human',
+      pre_response_required: false,
       processing_status: 'pending',
       metadata: {
         surface: 'haven',
         storage: 'haven-worker-d1',
         model: input.model || null,
         haven_companion_id: input.companionId || null,
+        wake_policy: 'ledger_only_already_handled_by_haven',
       },
       raw: {
         thread_id: input.threadId,
@@ -2199,7 +2200,7 @@ export default {
           companionId: chatCompanionId,
         }).catch((err) => console.warn('[continuity] user event failed', err)));
 
-        ctx.waitUntil(runChatJob(env, jobId, {
+        const jobInput = {
           threadId: turn.activeThreadId,
           userMsgId: turn.userMsgId,
           companionId: chatCompanionId,
@@ -2208,7 +2209,24 @@ export default {
           provider,
           image: body.image,
           thinking: body.thinking === true,
-        }));
+        };
+
+        if (chatCompanionId === 1) {
+          await runChatJob(env, jobId, jobInput);
+          const job = await getChatJob(env.DB, jobId, chatCompanionId);
+          return json(job ? {
+            ...job,
+            job_id: job.id,
+          } : {
+            job_id: jobId,
+            thread_id: turn.activeThreadId,
+            user_message_id: turn.userMsgId,
+            status: 'failed',
+            error: 'Kai response job finished without a status row.',
+          }, 202);
+        }
+
+        ctx.waitUntil(runChatJob(env, jobId, jobInput));
 
         return json({
           job_id: jobId,

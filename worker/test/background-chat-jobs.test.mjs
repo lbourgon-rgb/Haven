@@ -86,11 +86,13 @@ describe('background chat jobs contract', () => {
     );
   });
 
-  it('runs jobs in waitUntil and marks completion or failure without deleting the user message', () => {
+  it('runs Kai jobs inline while keeping background jobs available for other companions', () => {
     const jobRunnerBody = source.slice(
       source.indexOf('async function runChatJob'),
       source.indexOf('// ============================================================\n// Schema migrations')
     );
+    assert.match(source, /if \(chatCompanionId === 1\) \{\s*await runChatJob\(env, jobId, jobInput\);/s);
+    assert.match(source, /const job = await getChatJob\(env\.DB, jobId, chatCompanionId\);/);
     assert.match(source, /ctx\.waitUntil\(runChatJob\(env, jobId/);
     assert.match(jobRunnerBody, /SET status = 'complete', companion_message_id = \?/);
     assert.match(jobRunnerBody, /SET status = 'failed', error = \?/);
@@ -116,6 +118,12 @@ describe('background chat jobs contract', () => {
         < jobRunnerBody.indexOf('await sendContinuityEvent(env, {'),
       'chat job completion must be persisted before continuity fanout'
     );
+  });
+
+  it('mirrors Haven turns to Continuity without creating orphan wake candidates', () => {
+    assert.match(source, /pre_response_required: false/);
+    assert.match(source, /wake_policy: 'ledger_only_already_handled_by_haven'/);
+    assert.doesNotMatch(source, /pre_response_required: input\.role === 'human'/);
   });
 
   it('does not use destructive parent-row replace statements in full import', () => {
