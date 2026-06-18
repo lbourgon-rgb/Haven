@@ -22,9 +22,17 @@ const LS_MODEL = 'haven-model';
 const LS_PROVIDER = 'haven-provider';
 const DEFAULT_MODEL = 'z-ai/glm-5.2';
 const DEFAULT_PROVIDER = 'openrouter';
+const CANONICAL_MODELS = new Set([
+  DEFAULT_MODEL,
+  'deepseek/deepseek-v4-flash',
+  'x-ai/grok-4.20',
+  'google/gemma-4-26b-a4b-it',
+  'openai/gpt-4o-mini',
+]);
 
 function initialModel() {
-  return localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
+  const stored = localStorage.getItem(LS_MODEL);
+  return stored && CANONICAL_MODELS.has(stored) ? stored : DEFAULT_MODEL;
 }
 
 function initialProvider() {

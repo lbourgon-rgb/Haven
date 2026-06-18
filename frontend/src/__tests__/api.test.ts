@@ -165,6 +165,8 @@ describe('background chat job frontend contract', () => {
     expect(apiSource).not.toContain('https://serythrae.com/js/models.json');
     expect(chatSource).toContain("const DEFAULT_MODEL = 'z-ai/glm-5.2'");
     expect(chatSource).toContain("const DEFAULT_PROVIDER = 'openrouter'");
+    expect(chatSource).toContain('const CANONICAL_MODELS = new Set');
+    expect(chatSource).toContain('CANONICAL_MODELS.has(stored) ? stored : DEFAULT_MODEL');
     expect(chatSource).toContain("stored === 'serythrae' ? DEFAULT_PROVIDER : stored");
   });
 });
