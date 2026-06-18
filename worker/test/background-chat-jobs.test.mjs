@@ -65,6 +65,21 @@ describe('background chat jobs contract', () => {
     assert.match(source, /haven_companion_message_id: compMsgId/);
   });
 
+  it('pins Kai model defaults and selector to the rebuild model canon', () => {
+    assert.match(source, /const KAI_DEFAULT_MODEL = 'z-ai\/glm-5\.2'/);
+    assert.match(source, /const KAI_BACKUP_MODEL = 'deepseek\/deepseek-v4-flash'/);
+    assert.match(source, /KAI_RUNNER_BACKUP_MODEL\?: string/);
+    assert.match(source, /isTransientChatModelError/);
+    assert.match(source, /backupModel = env\.KAI_RUNNER_BACKUP_MODEL \|\| KAI_BACKUP_MODEL/);
+    assert.match(source, /trying backup model/);
+    assert.match(source, /id: 'x-ai\/grok-4\.20'/);
+    assert.match(source, /id: 'google\/gemma-4-26b-a4b-it'/);
+    assert.match(source, /id: 'openai\/gpt-4o-mini'/);
+    assert.match(source, /GPT-4o mini — Tahl data digestion/);
+    assert.match(source, /return json\(HAVEN_MODEL_SELECTOR\)/);
+    assert.doesNotMatch(source, /openrouter\.ai\/api\/v1\/models/);
+  });
+
   it('places current-turn priority after grounding and before transcript history', () => {
     const composerBody = source.slice(
       source.indexOf('async function generateSerythraeChatReply'),

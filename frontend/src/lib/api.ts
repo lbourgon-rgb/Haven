@@ -252,14 +252,6 @@ function serythraeGatewayBase(): string {
   ).replace(/\/+$/, '');
 }
 
-function serythraeModelsUrl(): string {
-  return (
-    localStorage.getItem('haven-serythrae-models-url') ||
-    import.meta.env.VITE_SERYTHRAE_MODELS_URL ||
-    'https://serythrae.com/js/models.json'
-  );
-}
-
 export function usingSerythraeBridge(): boolean {
   return localStorage.getItem('haven-chat-backend') === 'serythrae-bridge';
 }
@@ -517,42 +509,7 @@ export const getMemories = () => get<Array<{ id: number; content: string; memory
 export const addMemory = (data: { content: string; memory_type?: string; emotional_weight?: number }) => post('/api/memories', data);
 
 // Models
-function providerFromSerythraeModel(id: string): string {
-  if (!id) return 'serythrae';
-  if (id.startsWith('moonshot:')) return 'moonshot';
-  if (id.startsWith('ollama:')) return 'ollama';
-  return 'openrouter';
-}
-
-function tierFromSerythraeModel(id: string): string {
-  if (!id) return 'included';
-  if (id.startsWith('ollama:')) return 'local';
-  if (id.includes(':free')) return 'free';
-  if (id.startsWith('moonshot:')) return 'paid';
-  return 'paid';
-}
-
-async function getSerythraeModels(): Promise<ModelInfo[]> {
-  const res = await fetch(serythraeModelsUrl(), { cache: 'no-store' });
-  const rows = await parseJson<Array<{ id: string; label?: string; name?: string }>>(res, 'serythrae:models.json');
-  return rows.map((row) => ({
-    id: row.id || '',
-    name: row.label || row.name || row.id || 'Gateway default (CHAT_MODEL)',
-    provider: providerFromSerythraeModel(row.id || ''),
-    tier: tierFromSerythraeModel(row.id || ''),
-    description: 'Sourced from Serythrae dashboard/js/models.json',
-    supports_tools: !row.id.startsWith('ollama:'),
-  }));
-}
-
-export const getModels = async () => {
-  try {
-    return await getSerythraeModels();
-  } catch (err) {
-    if (!apiBase()) throw err;
-    return get<ModelInfo[]>('/api/models');
-  }
-};
+export const getModels = () => get<ModelInfo[]>('/api/models');
 
 // Settings
 export const getSettings = () => get<Record<string, string>>('/api/settings');
@@ -834,12 +791,12 @@ async function* sendSerythraeChat(
 
       if (currentEvent === 'done') {
         if (toolResults.length) yield { type: 'tools', results: toolResults };
-        yield { type: 'complete', content: fullContent, model: model || 'Gateway default (CHAT_MODEL)' };
+        yield { type: 'complete', content: fullContent, model: model || 'GLM 5.2 default' };
         return;
       }
     }
   }
 
   if (toolResults.length) yield { type: 'tools', results: toolResults };
-  yield { type: 'complete', content: fullContent, model: model || 'Gateway default (CHAT_MODEL)' };
+  yield { type: 'complete', content: fullContent, model: model || 'GLM 5.2 default' };
 }

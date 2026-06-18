@@ -20,12 +20,23 @@ interface ChatContainerProps {
 const LS_FONT = 'haven-font-size';
 const LS_MODEL = 'haven-model';
 const LS_PROVIDER = 'haven-provider';
+const DEFAULT_MODEL = 'z-ai/glm-5.2';
+const DEFAULT_PROVIDER = 'openrouter';
+
+function initialModel() {
+  return localStorage.getItem(LS_MODEL) || DEFAULT_MODEL;
+}
+
+function initialProvider() {
+  const stored = localStorage.getItem(LS_PROVIDER);
+  return !stored || stored === 'serythrae' ? DEFAULT_PROVIDER : stored;
+}
 
 export default function ChatContainer({ threadId, onThreadCreated, companionName, companionAvatar, onBack }: ChatContainerProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem(LS_MODEL) || '');
-  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem(LS_PROVIDER) || 'serythrae');
+  const [selectedModel, setSelectedModel] = useState(initialModel);
+  const [selectedProvider, setSelectedProvider] = useState(initialProvider);
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem(LS_FONT);
     return saved ? parseInt(saved, 10) : 15;

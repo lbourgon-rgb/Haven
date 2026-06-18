@@ -16,7 +16,48 @@ interface Env {
   SERYTHRAE_GATEWAY_API_KEY?: string;
   SERYTHRAE_GATEWAY?: Fetcher;
   KAI_RUNNER_MODEL?: string;
+  KAI_RUNNER_BACKUP_MODEL?: string;
 }
+
+const KAI_DEFAULT_MODEL = 'z-ai/glm-5.2';
+const KAI_BACKUP_MODEL = 'deepseek/deepseek-v4-flash';
+const HAVEN_MODEL_SELECTOR = [
+  {
+    id: KAI_DEFAULT_MODEL,
+    name: 'GLM 5.2 — default Haven runner / chat / Discord responder',
+    provider: 'openrouter',
+    tier: 'paid',
+    supports_tools: true,
+  },
+  {
+    id: KAI_BACKUP_MODEL,
+    name: 'DeepSeek v4 Flash — backup',
+    provider: 'openrouter',
+    tier: 'paid',
+    supports_tools: true,
+  },
+  {
+    id: 'x-ai/grok-4.20',
+    name: 'Grok 4.20',
+    provider: 'openrouter',
+    tier: 'paid',
+    supports_tools: true,
+  },
+  {
+    id: 'google/gemma-4-26b-a4b-it',
+    name: 'Gemma 4 26B A4B IT',
+    provider: 'openrouter',
+    tier: 'paid',
+    supports_tools: false,
+  },
+  {
+    id: 'openai/gpt-4o-mini',
+    name: 'GPT-4o mini — Tahl data digestion',
+    provider: 'openrouter',
+    tier: 'paid',
+    supports_tools: true,
+  },
+];
 
 function getCorsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin');
@@ -1228,7 +1269,12 @@ function timeoutAfter<T>(promise: Promise<T>, seconds: number, label: string): P
   });
 }
 
-function normalizeChatProviderConfig(model = 'google/gemma-4-31b-it:free', provider = 'openrouter'): ChatProviderConfig {
+function isTransientChatModelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /currently at capacity|overloaded|rate limit|temporarily unavailable|returned no choices|timed out|chat 502|chat 503|chat 504/i.test(message);
+}
+
+function normalizeChatProviderConfig(model = KAI_DEFAULT_MODEL, provider = 'openrouter'): ChatProviderConfig {
   const allowedProviders = ['serythrae', 'openrouter', 'ollama', 'openai', 'anthropic', 'groq', 'xai', 'huggingface'];
   let normalizedProvider = allowedProviders.includes(provider) ? provider : 'openrouter';
   if (normalizedProvider === 'openrouter' && model.includes(':') && !model.includes('/')) {
@@ -2017,11 +2063,12 @@ export default {
           });
 
           runnerStage = 'serythrae-compose';
-          const model = body.model || env.KAI_RUNNER_MODEL || 'x-ai/grok-4.20';
-          const generated = await generateSerythraeChatReply(env, {
+          let model = String(body.model || env.KAI_RUNNER_MODEL || KAI_DEFAULT_MODEL);
+          const backupModel = env.KAI_RUNNER_BACKUP_MODEL || KAI_BACKUP_MODEL;
+          const makeRunnerInput = (selectedModel: string) => ({
             threadId: runnerThread,
             message,
-            model,
+            model: selectedModel,
             thinking: body.thinking,
             surface: body.source || 'discord',
             room: body.channel_label || 'discord',
@@ -2030,6 +2077,15 @@ export default {
             recentContext: body.recent_context,
             wakeContext: body.wake_context,
           });
+          let generated: ChatReplyResult;
+          try {
+            generated = await generateSerythraeChatReply(env, makeRunnerInput(model));
+          } catch (error) {
+            if (!backupModel || backupModel === model || !isTransientChatModelError(error)) throw error;
+            console.warn(`[kai-runner] ${model} failed transiently; trying backup model ${backupModel}`, error);
+            model = backupModel;
+            generated = await generateSerythraeChatReply(env, makeRunnerInput(model));
+          }
           if (!generated.content) return json({ error: 'Runner generated an empty response', stage: runnerStage }, 502);
 
           runnerStage = 'persist-companion-turn';
@@ -2816,132 +2872,7 @@ export default {
 
       // ---- Models ----
       if (path === '/api/models' && request.method === 'GET') {
-        const models: Array<{ id: string; name: string; provider: string; tier: string; description?: string; context_length?: number; supports_tools?: boolean }> = [];
-        // Per-provider toggles suppress that provider's models from the
-        // picker entirely when disabled.
-        const [orEnabled, ollamaEnabled, customEnabled] = await Promise.all([
-          isProviderEnabled(env.DB, 'openrouter'),
-          isProviderEnabled(env.DB, 'ollama'),
-          isProviderEnabled(env.DB, 'custom'),
-        ]);
-        const hasOpenRouter = orEnabled ? (env.OPENROUTER_API_KEY || await getSettingValue(env.DB, 'openrouter_key')) : null;
-
-        // Fetch live models from OpenRouter (skip entirely if disabled)
-        if (orEnabled) try {
-          const res = await fetch('https://openrouter.ai/api/v1/models');
-          const data = await res.json() as any;
-          for (const m of (data.data || [])) {
-            const isFree = m.id?.endsWith(':free') || (Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0);
-            // Free models always listed. Paid models listed only when the user
-            // has their own OpenRouter key configured (so charges go to them).
-            if (isFree || hasOpenRouter) {
-              // OpenRouter publishes supported_parameters per model — if
-              // 'tools' isn't in there, tool calling will 404 for every
-              // provider route. We surface this to the picker so users
-              // don't pick Gemma-on-OR expecting tool use.
-              const supportsTools = Array.isArray(m.supported_parameters)
-                ? m.supported_parameters.includes('tools')
-                : undefined;
-              models.push({
-                id: m.id,
-                name: m.name || m.id,
-                provider: 'openrouter',
-                tier: isFree ? 'free' : 'paid',
-                description: m.description || undefined,
-                context_length: m.context_length || undefined,
-                supports_tools: supportsTools,
-              });
-            }
-          }
-        } catch {
-          // Fallback if OpenRouter API is down
-          models.push(
-            { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openrouter', tier: 'paid' },
-            { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'openrouter', tier: 'paid' },
-          );
-        }
-
-        // Add Ollama models if configured AND enabled
-        const ollamaUrl = env.OLLAMA_URL || await getSettingValue(env.DB, 'ollama_url') || 'https://api.ollama.com';
-        const ollamaKey = ollamaEnabled ? await getSettingValue(env.DB, 'ollama_key') : null;
-        if (ollamaEnabled && (ollamaKey || (ollamaUrl && ollamaUrl.startsWith('http')))) {
-          try {
-            const ollamaHeaders: Record<string, string> = {};
-            if (ollamaKey) ollamaHeaders['Authorization'] = `Bearer ${ollamaKey}`;
-            let ollamaModels: string[] = [];
-            try {
-              const res = await fetch(`${ollamaUrl}/v1/models`, { headers: ollamaHeaders });
-              const data = await res.json() as any;
-              ollamaModels = (data.data || []).map((m: any) => m.id);
-            } catch {
-              try {
-                const res = await fetch(`${ollamaUrl}/api/tags`, { headers: ollamaHeaders });
-                const data = await res.json() as any;
-                ollamaModels = (data.models || []).map((m: any) => m.name);
-              } catch {}
-            }
-            for (const id of ollamaModels) {
-              // Ollama Cloud doesn't publish per-model tool-call support via
-              // the models endpoint. Rather than guess (we were wrongly
-              // flagging Gemma as non-tool-capable based on one timeout),
-              // leave supports_tools undefined so the picker shows no badge
-              // and users can discover empirically. The upstream-error
-              // notice handles degraded fallbacks cleanly.
-              models.push({ id, name: id, provider: 'ollama', tier: 'included' });
-            }
-          } catch {}
-        }
-
-        // Add custom provider models (HuggingFace, Groq, OpenAI, etc.)
-        const customKey = customEnabled ? await getSettingValue(env.DB, 'custom_key') : null;
-        const customBaseUrl = customEnabled ? await getSettingValue(env.DB, 'custom_base_url') : null;
-        if (customEnabled && customKey && customBaseUrl) {
-          let customProvider = 'custom';
-          if (customBaseUrl.includes('huggingface') || customBaseUrl.includes('hf.co')) customProvider = 'huggingface';
-          else if (customBaseUrl.includes('groq.com')) customProvider = 'groq';
-          else if (customBaseUrl.includes('openai.com')) customProvider = 'openai';
-          else if (customBaseUrl.includes('anthropic.com')) customProvider = 'anthropic';
-          else if (customBaseUrl.includes('x.ai')) customProvider = 'xai';
-
-          if (customProvider === 'anthropic') {
-            let anthropicLoaded = false;
-            try {
-              const res = await fetch(`${customBaseUrl}/models`, {
-                headers: { 'x-api-key': customKey, 'anthropic-version': '2023-06-01' },
-              });
-              if (res.ok) {
-                const data = await res.json() as any;
-                const items = data.data || [];
-                if (items.length > 0) {
-                  for (const m of items) {
-                    models.push({ id: m.id, name: m.display_name || m.id, provider: 'anthropic', tier: 'included', description: m.description || undefined });
-                  }
-                  anthropicLoaded = true;
-                }
-              }
-            } catch {}
-            if (!anthropicLoaded) {
-              models.push(
-                { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic', tier: 'included', context_length: 200000 },
-                { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', tier: 'included', context_length: 200000 },
-                { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', provider: 'anthropic', tier: 'included', context_length: 200000 },
-                { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', provider: 'anthropic', tier: 'included', context_length: 200000 },
-              );
-            }
-          } else {
-            try {
-              const res = await fetch(`${customBaseUrl}/models`, {
-                headers: { 'Authorization': `Bearer ${customKey}` },
-              });
-              const data = await res.json() as any;
-              for (const m of (data.data || [])) {
-                models.push({ id: m.id, name: m.id, provider: customProvider, tier: 'included' });
-              }
-            } catch {}
-          }
-        }
-
-        return json(models);
+        return json(HAVEN_MODEL_SELECTOR);
       }
 
       // ---- Import Message (bulk insert) ----

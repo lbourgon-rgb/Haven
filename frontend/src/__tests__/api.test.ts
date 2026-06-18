@@ -159,4 +159,12 @@ describe('background chat job frontend contract', () => {
     expect(cssSource).toContain('height: calc(100dvh - 162px - env(safe-area-inset-bottom))');
     expect(cssSource).toContain('max-height: none');
   });
+
+  it('uses Haven model canon instead of the retired Serythrae selector', () => {
+    expect(apiSource).toContain("export const getModels = () => get<ModelInfo[]>('/api/models')");
+    expect(apiSource).not.toContain('https://serythrae.com/js/models.json');
+    expect(chatSource).toContain("const DEFAULT_MODEL = 'z-ai/glm-5.2'");
+    expect(chatSource).toContain("const DEFAULT_PROVIDER = 'openrouter'");
+    expect(chatSource).toContain("stored === 'serythrae' ? DEFAULT_PROVIDER : stored");
+  });
 });
