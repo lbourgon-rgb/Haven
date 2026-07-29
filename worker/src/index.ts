@@ -3,6 +3,12 @@
  * Handles inference (Ollama/OpenRouter), D1 persistence, and CI loading
  */
 
+import {
+  buildHavenVelPreflightPrompt,
+  readHavenVelPreflight,
+  type HavenVelPreflightContext,
+} from './vel-preflight';
+
 interface Env {
   DB: D1Database;
   FILES: R2Bucket;
@@ -17,6 +23,7 @@ interface Env {
   SERYTHRAE_GATEWAY?: Fetcher;
   KAI_RUNNER_MODEL?: string;
   KAI_RUNNER_BACKUP_MODEL?: string;
+  VEL_PREFLIGHT_HAVEN_API_KEY?: string;
 }
 
 const KAI_DEFAULT_MODEL = 'z-ai/glm-5.2';
@@ -1334,12 +1341,15 @@ async function buildChatMessagesForThread(env: Env, input: {
   message: string;
   model: string;
   image?: string;
+  velPreflight: HavenVelPreflightContext | null;
 }): Promise<Array<{ role: string; content: any }>> {
   const history = await env.DB.prepare(
     'SELECT role, content FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT 50'
   ).bind(input.threadId).all<{ role: string; content: string }>();
 
   let systemPrompt = await buildSystemPrompt(env.DB, input.companionId);
+  const velPreflightPrompt = buildHavenVelPreflightPrompt(input.velPreflight);
+  if (velPreflightPrompt) systemPrompt += `\n\n${velPreflightPrompt}`;
   if (input.companionId === 1) {
     const manualRefresh = isKaiRefreshPhrase(input.message);
     const householdContext = await fetchKaiHouseholdContext(env, input.message, {
@@ -1432,6 +1442,7 @@ async function generateSerythraeChatReply(env: Env, input: {
   channelLabel?: string;
   recentContext?: string;
   wakeContext?: unknown;
+  velPreflight?: HavenVelPreflightContext | null;
   onChunk?: (chunk: string) => void | Promise<void>;
 }): Promise<{ content: string; model: string; toolResults: Array<{ name: string; result: string; server?: string; ok: boolean }> }> {
   const base = (env.SERYTHRAE_GATEWAY_URL || '').replace(/\/+$/, '');
@@ -1448,6 +1459,10 @@ async function generateSerythraeChatReply(env: Env, input: {
   }
   if (input.wakeContext) {
     contextMessages.push({ role: 'system', content: buildWakeGroundingPrompt(input.wakeContext) });
+  }
+  const velPreflightPrompt = buildHavenVelPreflightPrompt(input.velPreflight || null);
+  if (velPreflightPrompt) {
+    contextMessages.push({ role: 'system', content: velPreflightPrompt });
   }
   contextMessages.push({ role: 'system', content: buildCurrentTurnPriorityPrompt(input.message) });
   const messages = [
@@ -1566,8 +1581,10 @@ async function generateChatReply(env: Env, input: {
   provider: string;
   image?: string;
   thinking?: boolean;
+  velAuthorVerified: boolean;
   onProgress?: (event: ChatProgressEvent) => void | Promise<void>;
 }): Promise<ChatReplyResult> {
+  const velPreflight = await readHavenVelPreflight(env, input.velAuthorVerified);
   const hasSerythraeLine = !!env.SERYTHRAE_GATEWAY || !!env.SERYTHRAE_GATEWAY_URL;
   if (input.companionId === 1 && hasSerythraeLine) {
     let streamedContent = false;
@@ -1577,6 +1594,7 @@ async function generateChatReply(env: Env, input: {
       model: input.model,
       image: input.image,
       thinking: input.thinking,
+      velPreflight,
       onChunk: async (chunk) => {
         streamedContent = true;
         await input.onProgress?.({ type: 'chunk', content: chunk });
@@ -1599,6 +1617,7 @@ async function generateChatReply(env: Env, input: {
     message: input.message,
     model: input.model,
     image: input.image,
+    velPreflight,
   });
   const mcpTools = await loadMcpTools(env.DB);
   const toolResults: ChatReplyResult['toolResults'] = [];
@@ -1799,6 +1818,7 @@ async function runChatJob(env: Env, jobId: string, input: {
   provider: string;
   image?: string;
   thinking?: boolean;
+  velAuthorVerified: boolean;
 }): Promise<void> {
   try {
     await env.DB.prepare(
@@ -1813,6 +1833,7 @@ async function runChatJob(env: Env, jobId: string, input: {
       provider: input.provider,
       image: input.image,
       thinking: input.thinking,
+      velAuthorVerified: input.velAuthorVerified,
     }), CHAT_JOB_TIMEOUT_SECONDS, 'Kai response');
     if (!reply.content.trim() && reply.toolResults.length === 0 && !reply.notice) {
       throw new Error('No response received from model');
@@ -2177,6 +2198,10 @@ export default {
           }
         }
       }
+      const velAuthorVerified = Boolean(
+        storedToken
+        && request.headers.get('Authorization')?.replace('Bearer ', '') === storedToken
+      );
 
       // ---- Health ----
       if (path === '/' || path === '/health') {
@@ -2265,6 +2290,7 @@ export default {
           provider,
           image: body.image,
           thinking: body.thinking === true,
+          velAuthorVerified,
         };
 
         if (chatCompanionId === 1) {
@@ -2361,6 +2387,7 @@ export default {
                 provider,
                 image: body.image,
                 thinking: body.thinking === true,
+                velAuthorVerified,
                 onProgress: (event) => {
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
                 },
